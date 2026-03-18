@@ -1,43 +1,3 @@
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Stelno</title>
-
-<style>
-body{
-  margin:0;
-  font-family:system-ui;
-  background:linear-gradient(135deg,#0f0f0f,#1a1a1a);
-  color:#eee;
-  display:flex;
-  height:100vh;
-  align-items:center;
-  justify-content:center;
-}
-#box{text-align:center}
-#drop{
-  border:2px dashed #444;
-  padding:40px;
-  border-radius:14px;
-  transition:.2s;
-}
-#drop:hover{border-color:#888}
-#status{margin-top:10px;font-size:14px;color:#aaa}
-progress{width:100%;margin-top:10px}
-</style>
-
-</head>
-<body>
-
-<div id="box">
-  <h2>Stelno ⚡</h2>
-  <div id="drop">Drop file or click</div>
-  <input type="file" id="f" hidden>
-  <div id="status">Initializing...</div>
-  <progress id="p" value="0" max="100"></progress>
-</div>
-
 <script type="module">
 /* config */
 const WS = 'wss://stelno.onrender.com';
@@ -82,9 +42,14 @@ const pc = new RTCPeerConnection({
 let makingOffer = false;
 const polite = Math.random() > 0.5;
 
-/* setup channel function MUST be defined first */
+/* setup channel */
 function setup(){
   if(!dc) return;
+
+  let incomingFile = null;
+  let receivedChunks = [];
+  let expectedChunks = 0;
+  let fileMeta = null;
 
   dc.onopen = () => {
     connected = true;
@@ -95,13 +60,35 @@ function setup(){
   dc.onclose = () => { connected = false; };
   dc.onerror = () => { connected = false; };
 
-  dc.onmessage = e => {
-    s.textContent = 'Receiving via P2P ⚡';
-    const blob = new Blob([e.data]);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'file';
-    a.click();
+  dc.onmessage = async e => {
+    try {
+      if(typeof e.data === 'string'){
+        // metadata JSON
+        const meta = JSON.parse(e.data);
+        fileMeta = meta;
+        incomingFile = [];
+        expectedChunks = meta.chunks;
+        receivedChunks = [];
+        prog.value = 0;
+        s.textContent = `Receiving ${meta.name} via P2P ⚡`;
+      } else {
+        // binary chunk
+        receivedChunks.push(e.data);
+        prog.value = (receivedChunks.length / expectedChunks) * 100;
+
+        if(receivedChunks.length === expectedChunks){
+          const blob = new Blob(receivedChunks, {type: fileMeta.type});
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = fileMeta.name;
+          a.click();
+          s.textContent = `Received ${fileMeta.name} ✅`;
+          prog.value = 0;
+        }
+      }
+    } catch(err){
+      console.error(err);
+    }
   };
 }
 
@@ -175,10 +162,7 @@ drop.onclick = async () => {
   f.click();
 };
 drop.ondragover = e => e.preventDefault();
-drop.ondrop = e => {
-  e.preventDefault();
-  sendFile(e.dataTransfer.files[0]);
-};
+drop.ondrop = e => { e.preventDefault(); sendFile(e.dataTransfer.files[0]); };
 f.onchange = () => sendFile(f.files[0]);
 
 /* fallback timer */
@@ -189,40 +173,48 @@ setTimeout(()=>{
   }
 },9000);
 
-/* send logic */
+/* chunked P2P send */
 async function sendFile(file){
   if(!file) return;
 
-  s.textContent = 'Preparing...';
+  s.textContent='Preparing...';
+  const chunkSize = 16*1024; // 16KB
+  const buffer = await file.arrayBuffer();
+  const chunks = Math.ceil(buffer.byteLength / chunkSize);
 
   if(!connected && !fallbackMode){
-    s.textContent = 'Connecting...';
+    s.textContent='Connecting...';
     await new Promise(r=>setTimeout(r,2000));
   }
 
-  s.textContent = 'Sending...';
+  s.textContent='Sending...';
 
-  /* P2P */
   if(connected && !fallbackMode){
-    const b = await file.arrayBuffer();
-    dc.send(b);
-    s.textContent = 'Sent via P2P ⚡';
-  }
-  /* fallback */
-  else{
-    s.textContent = 'Uploading... ☁️';
+    // send metadata first
+    dc.send(JSON.stringify({name:file.name,type:file.type,chunks:chunks}));
+
+    // send binary chunks
+    let offset=0;
+    while(offset < buffer.byteLength){
+      while(dc.bufferedAmount > 16*chunkSize) await new Promise(r=>setTimeout(r,50));
+      const slice = buffer.slice(offset, offset+chunkSize);
+      dc.send(slice);
+      offset += chunkSize;
+      prog.value = (offset / buffer.byteLength) * 100;
+    }
+    s.textContent=`Sent ${file.name} via P2P ⚡`;
+    prog.value = 0;
+  } else {
+    // fallback
+    s.textContent='Uploading... ☁️';
     try{
       const res = await fetch(HTTP, {method:'POST', body:file});
       const id = await res.text();
       sendWS({file:id});
-      s.textContent = 'Sent via fallback ☁️';
+      s.textContent='Sent via fallback ☁️';
     }catch{
-      s.textContent = 'Upload failed ❌';
+      s.textContent='Upload failed ❌';
     }
   }
 }
 </script>
-
-
-</body>
-</html>
