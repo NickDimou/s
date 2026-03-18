@@ -1,3 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Stelno</title>
+
+<style>
+body{
+  margin:0;
+  font-family:system-ui;
+  background:linear-gradient(135deg,#0f0f0f,#1a1a1a);
+  color:#eee;
+  display:flex;
+  height:100vh;
+  align-items:center;
+  justify-content:center;
+}
+#box{text-align:center}
+#drop{
+  border:2px dashed #444;
+  padding:40px;
+  border-radius:14px;
+  transition:.2s;
+}
+#drop:hover{border-color:#888}
+#status{margin-top:10px;font-size:14px;color:#aaa}
+progress{width:100%;margin-top:10px}
+</style>
+
+</head>
+<body>
+
+<div id="box">
+  <h2>Stelno ⚡</h2>
+  <div id="drop">Drop file or click</div>
+  <input type="file" id="f" hidden>
+  <div id="status">Initializing...</div>
+  <progress id="p" value="0" max="100"></progress>
+</div>
+
 <script type="module">
 /* config */
 const WS = 'wss://stelno.onrender.com';
@@ -7,9 +47,6 @@ const HTTP = 'https://stelno.onrender.com';
 const r = location.hash.slice(1) || Math.random().toString(36).slice(2);
 location.hash = r;
 
-/* auto-copy */
-navigator.clipboard?.writeText(location.href);
-
 /* UI */
 const s = document.getElementById('status');
 const prog = document.getElementById('p');
@@ -17,30 +54,24 @@ const prog = document.getElementById('p');
 /* state */
 let dc, connected=false, fallbackMode=false;
 
-/* websocket */
+/* socket */
 const ws = new WebSocket(WS);
-
-/* message queue (critical fix) */
-let q = [];
+const q = [];
 
 /* safe send */
-const send = d => {
-  const msg = JSON.stringify(d);
-
-  if (ws.readyState === 1) {
-    ws.send(msg);
-  } else {
-    q.push(msg);
-  }
+const sendWS = d => {
+  const m = JSON.stringify(d);
+  if(ws.readyState===1) ws.send(m);
+  else q.push(m);
 };
 
-/* flush queue */
-ws.addEventListener('open', () => {
-  send({join:r});
-  q.forEach(m => ws.send(m));
-  q = [];
+ws.onopen = () => {
+  sendWS({join:r});
   s.textContent = 'Waiting for peer...';
-});
+
+  /* flush queue */
+  while(q.length) ws.send(q.shift());
+};
 
 /* webrtc */
 const pc = new RTCPeerConnection({
@@ -54,7 +85,7 @@ const pc = new RTCPeerConnection({
 
   const o = await pc.createOffer();
   await pc.setLocalDescription(o);
-  send({signal:o});
+  sendWS({signal:o});
 })();
 
 /* fallback timer */
@@ -74,7 +105,7 @@ pc.ondatachannel = e => {
 /* ice */
 pc.onicecandidate = e => {
   if(e.candidate)
-    send({signal:e.candidate});
+    sendWS({signal:e.candidate});
 };
 
 /* signaling */
@@ -82,23 +113,17 @@ ws.onmessage = async e => {
   const d = JSON.parse(e.data);
 
   if(d.signal){
-    try{
-      if(d.signal.type==='offer'){
-        await pc.setRemoteDescription(d.signal);
-        const a = await pc.createAnswer();
-        await pc.setLocalDescription(a);
-        send({signal:a});
-      }
-
-      else if(d.signal.type==='answer'){
-        await pc.setRemoteDescription(d.signal);
-      }
-
-      else if(d.signal.candidate){
-        await pc.addIceCandidate(d.signal);
-      }
-    }catch(err){
-      /* prevent crash */
+    if(d.signal.type==='offer'){
+      await pc.setRemoteDescription(d.signal);
+      const a = await pc.createAnswer();
+      await pc.setLocalDescription(a);
+      sendWS({signal:a});
+    }
+    else if(d.signal.type==='answer'){
+      await pc.setRemoteDescription(d.signal);
+    }
+    else if(d.signal.candidate){
+      await pc.addIceCandidate(d.signal);
     }
   }
 
@@ -113,8 +138,15 @@ ws.onmessage = async e => {
   }
 };
 
-/* drag/drop */
-drop.onclick = () => f.click();
+/* drag/drop + clipboard FIX */
+drop.onclick = async () => {
+  try{
+    await navigator.clipboard.writeText(location.href);
+    s.textContent = 'Link copied ✓';
+  }catch(e){}
+  f.click();
+};
+
 drop.ondragover = e => e.preventDefault();
 
 drop.ondrop = e => {
@@ -158,7 +190,6 @@ async function sendFile(file){
 
   s.textContent='Preparing...';
 
-  /* wait briefly for connection */
   if(!connected && !fallbackMode){
     s.textContent='Connecting...';
     await new Promise(r=>setTimeout(r,2000));
@@ -167,33 +198,29 @@ async function sendFile(file){
   s.textContent='Sending...';
 
   /* P2P */
-  if(connected && dc && dc.readyState==='open' && !fallbackMode){
-    try{
-      const b = await file.arrayBuffer();
-      dc.send(b);
-      s.textContent='Sent via P2P ⚡';
-      return;
-    }catch(e){
-      fallbackMode = true;
-    }
+  if(connected && !fallbackMode){
+    const b = await file.arrayBuffer();
+    dc.send(b);
+    s.textContent='Sent via P2P ⚡';
   }
 
   /* fallback */
-  s.textContent='Uploading... ☁️';
+  else{
+    s.textContent='Uploading... ☁️';
 
-  try{
     const res = await fetch(HTTP,{
       method:'POST',
       body:file
     });
 
     const id = await res.text();
-    send({file:id});
+
+    sendWS({file:id});
 
     s.textContent='Sent via fallback ☁️';
-
-  }catch(e){
-    s.textContent='Upload failed ❌';
   }
 }
 </script>
+
+</body>
+</html>
