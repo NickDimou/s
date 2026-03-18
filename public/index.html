@@ -4,8 +4,6 @@
 <meta charset="utf-8">
 <title>Stelno</title>
 
-<link rel="icon" href="data:,">
-
 <style>
 body{
   margin:0;
@@ -42,7 +40,7 @@ progress{width:100%;margin-top:10px}
 
 <script type="module">
 /* config */
-const WS_URL = 'wss://stelno.onrender.com';
+const WS = 'wss://stelno.onrender.com';
 const HTTP = 'https://stelno.onrender.com';
 
 /* room */
@@ -57,68 +55,47 @@ const f = document.getElementById('f');
 
 /* state */
 let dc, connected=false, fallbackMode=false;
-let ws;
-let q = [];
 
-/* SAFE WS */
-function connectWS(){
-  ws = new WebSocket(WS_URL);
-
-  ws.onopen = () => {
-    safeSend({join:r});
-    flushQueue();
-    s.textContent = 'Waiting for peer...';
-  };
-
-  ws.onclose = () => {
-    s.textContent = 'Reconnecting...';
-    setTimeout(connectWS, 1500);
-  };
-
-  ws.onerror = () => ws.close();
-
-  ws.onmessage = handleSignal;
-}
+/* socket */
+const ws = new WebSocket(WS);
+const q = [];
 
 /* safe send */
-function safeSend(data){
-  const msg = JSON.stringify(data);
-  if(ws.readyState === WebSocket.OPEN){
-    ws.send(msg);
-  } else {
-    q.push(msg);
-  }
-}
+const sendWS = d => {
+  const m = JSON.stringify(d);
+  if(ws.readyState===1) ws.send(m);
+  else q.push(m);
+};
 
-/* flush */
-function flushQueue(){
-  while(q.length && ws.readyState === WebSocket.OPEN){
-    ws.send(q.shift());
-  }
-}
-
-/* start WS */
-connectWS();
+ws.onopen = () => {
+  sendWS({join:r});
+  s.textContent = 'Waiting for peer...';
+  while(q.length) ws.send(q.shift());
+};
 
 /* WEBRTC */
 const pc = new RTCPeerConnection({
   iceServers:[{urls:'stun:stun.l.google.com:19302'}]
 });
 
-/* create channel */
-(async ()=>{
-  dc = pc.createDataChannel('f');
-  setup();
+/* PERFECT NEGOTIATION */
+let makingOffer = false;
+const polite = Math.random() > 0.5;
 
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  safeSend({signal:offer});
-})();
+/* create data channel once */
+dc = pc.createDataChannel('f');
+setup();
 
-/* ICE */
-pc.onicecandidate = e => {
-  if(!e.candidate) return;
-  safeSend({signal:e.candidate});
+/* negotiation trigger */
+pc.onnegotiationneeded = async () => {
+  try{
+    makingOffer = true;
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    sendWS({signal: pc.localDescription});
+  } finally {
+    makingOffer = false;
+  }
 };
 
 /* receive channel */
@@ -127,22 +104,36 @@ pc.ondatachannel = e => {
   setup();
 };
 
-/* signaling handler */
-async function handleSignal(e){
+/* ICE */
+pc.onicecandidate = e => {
+  if(!e.candidate) return;
+  sendWS({signal:e.candidate});
+};
+
+/* signaling */
+ws.onmessage = async e => {
   const d = JSON.parse(e.data);
 
   if(d.signal){
-    if(d.signal.type==='offer'){
+    const offerCollision =
+      d.signal.type === "offer" &&
+      (makingOffer || pc.signalingState !== "stable");
+
+    const ignoreOffer = !polite && offerCollision;
+    if(ignoreOffer) return;
+
+    if(d.signal.type === "offer"){
       await pc.setRemoteDescription(d.signal);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      safeSend({signal:answer});
+      sendWS({signal: pc.localDescription});
     }
-    else if(d.signal.type==='answer'){
+    else if(d.signal.type === "answer"){
+      if(pc.signalingState !== "have-local-offer") return;
       await pc.setRemoteDescription(d.signal);
     }
     else if(d.signal.candidate){
-      await pc.addIceCandidate(d.signal);
+      try{ await pc.addIceCandidate(d.signal); }catch{}
     }
   }
 
@@ -155,98 +146,8 @@ async function handleSignal(e){
     a.download = 'file';
     a.click();
   }
-}
-
-/* fallback timer */
-setTimeout(()=>{
-  if(!connected){
-    fallbackMode = true;
-    s.textContent = 'Using secure fallback ☁️';
-  }
-},9000);
-
-/* UI interactions */
-drop.onclick = async () => {
-  try{
-    await navigator.clipboard.writeText(location.href);
-    s.textContent = 'Link copied ✓';
-  }catch(e){}
-  f.click();
 };
 
-drop.ondragover = e => e.preventDefault();
-
-drop.ondrop = e => {
-  e.preventDefault();
-  sendFile(e.dataTransfer.files[0]);
-};
-
-f.onchange = () => sendFile(f.files[0]);
-
-/* DATA CHANNEL */
-function setup(){
-
-  dc.onopen = ()=>{
-    connected = true;
-    fallbackMode = false;
-    s.textContent = 'Direct connection ⚡';
-  };
-
-  dc.onclose = ()=>{
-    connected = false;
-  };
-
-  dc.onerror = ()=>{
-    connected = false;
-  };
-
-  dc.onmessage = e => {
-    s.textContent = 'Receiving via P2P ⚡';
-
-    const blob = new Blob([e.data]);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'file';
-    a.click();
-  };
-}
-
-/* SEND */
-async function sendFile(file){
-  if(!file) return;
-
-  s.textContent='Preparing...';
-
-  if(!connected && !fallbackMode){
-    s.textContent='Connecting...';
-    await new Promise(r=>setTimeout(r,2000));
-  }
-
-  s.textContent='Sending...';
-
-  /* P2P */
-  if(connected && !fallbackMode){
-    const buf = await file.arrayBuffer();
-    dc.send(buf);
-    s.textContent='Sent via P2P ⚡';
-  }
-
-  /* fallback */
-  else{
-    s.textContent='Uploading... ☁️';
-
-    const res = await fetch(HTTP,{
-      method:'POST',
-      body:file
-    });
-
-    const id = await res.text();
-
-    safeSend({file:id});
-
-    s.textContent='Sent via fallback ☁️';
-  }
-}
 </script>
 
 </body>
