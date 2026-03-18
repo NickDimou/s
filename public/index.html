@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Stelno</title>
+
+<style>
+/* premium minimal UI */
+body{
+  margin:0;
+  font-family:system-ui;
+  background:linear-gradient(135deg,#0f0f0f,#1a1a1a);
+  color:#eee;
+  display:flex;
+  height:100vh;
+  align-items:center;
+  justify-content:center;
+}
+#box{
+  text-align:center;
+}
+#drop{
+  border:2px dashed #444;
+  padding:40px;
+  border-radius:14px;
+  transition:.2s;
+}
+#drop:hover{border-color:#888}
+#status{margin-top:10px;font-size:14px;color:#aaa}
+progress{width:100%;margin-top:10px}
+</style>
+
+</head>
+<body>
+
+<div id="box">
+  <h2>Stelno ⚡</h2>
+  <div id="drop">Drop file or click</div>
+  <input type="file" id="f" hidden>
+  <div id="status">Waiting for connection...</div>
+  <progress id="p" value="0" max="100"></progress>
+</div>
+
+<script type="module">
+/* config */
+const WS = 'wss://YOUR_RENDER_URL';
+const HTTP = 'https://YOUR_RENDER_URL';
+
+/* room */
+const r = location.hash.slice(1) || Math.random().toString(36).slice(2);
+location.hash = r;
+
+/* UI */
+const s = document.getElementById('status');
+const prog = document.getElementById('p');
+
+/* socket */
+const ws = new WebSocket(WS);
+ws.onopen = () => ws.send(JSON.stringify({join:r}));
+
+/* webrtc */
+let pc = new RTCPeerConnection({
+  iceServers:[{urls:'stun:stun.l.google.com:19302'}]
+});
+
+let dc, connected=false;
+
+/* auto-connect */
+(async ()=>{
+  dc = pc.createDataChannel('f');
+  setup();
+
+  const o = await pc.createOffer();
+  await pc.setLocalDescription(o);
+  ws.send(JSON.stringify({signal:o}));
+})();
+
+/* fallback timer */
+setTimeout(()=>{
+  if(!connected){
+    s.textContent = 'Switching to fallback...';
+    fallbackMode = true;
+  }
+},4000);
+
+/* receive channel */
+pc.ondatachannel = e => {
+  dc = e.channel;
+  setup();
+};
+
+/* ice */
+pc.onicecandidate = e => {
+  if(e.candidate)
+    ws.send(JSON.stringify({signal:e.candidate}));
+};
+
+/* signaling */
+ws.onmessage = async e => {
+  const d = JSON.parse(e.data);
+
+  if(d.signal){
+    if(d.signal.type==='offer'){
+      await pc.setRemoteDescription(d.signal);
+      const a = await pc.createAnswer();
+      await pc.setLocalDescription(a);
+      ws.send(JSON.stringify({signal:a}));
+    }
+    else if(d.signal.type==='answer'){
+      await pc.setRemoteDescription(d.signal);
+    }
+    else if(d.signal.candidate){
+      await pc.addIceCandidate(d.signal);
+    }
+  }
+
+  /* fallback receive */
+  if(d.file){
+    const a = document.createElement('a');
+    a.href = HTTP+'/f/'+d.file;
+    a.download = 'file';
+    a.click();
+  }
+};
+
+/* drag/drop */
+drop.onclick = () => f.click();
+drop.ondragover = e => e.preventDefault();
+drop.ondrop = e => {
+  e.preventDefault();
+  send(e.dataTransfer.files[0]);
+};
+f.onchange = () => send(f.files[0]);
+
+/* setup channel */
+function setup(){
+  dc.onopen = ()=>{
+    connected=true;
+    s.textContent = 'Direct connection ⚡';
+  };
+
+  dc.onmessage = e => {
+    const blob = new Blob([e.data]);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'file';
+    a.click();
+  };
+}
+
+let fallbackMode=false;
+
+/* send logic */
+async function send(file){
+  if(!file) return;
+
+  s.textContent='Sending...';
+
+  /* P2P */
+  if(connected && !fallbackMode){
+    const b = await file.arrayBuffer();
+    dc.send(b);
+    s.textContent='Sent via P2P ⚡';
+  }
+
+  /* fallback */
+  else{
+    const res = await fetch(HTTP,{
+      method:'POST',
+      body:file
+    });
+
+    const id = await res.text();
+    ws.send(JSON.stringify({file:id}));
+
+    s.textContent='Sent via fallback ☁️';
+  }
+}
+</script>
+
+</body>
+</html>
