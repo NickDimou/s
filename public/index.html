@@ -1,3 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="google" content="notranslate">
+<html lang="en" translate="no">
+<meta name="format-detection" content="telephone=no">
+<meta name="author" content="<?php echo $person; ?>">
+<meta name="organization" content="<?php echo $owner; ?>">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+
+<title>Stelno</title>
+
+<style>
+:root{
+  --bg-gradient: linear-gradient(145deg,#0a0a0a,#1c1c1c);
+  --text-color: #fafafa;
+  --accent-color: #0ff;
+  --box-bg: rgba(20,20,20,0.5);
+  --box-blur: 12px;
+  --box-shadow: 0 0 40px rgba(0,255,255,0.1);
+  --box-radius: 36px;
+  --drop-padding-mobile: 100px 70px;
+  --drop-padding-desktop: 220px 190px;
+  --drop-radius-mobile: 36px;
+  --drop-radius-desktop: 40px;
+  --drop-border: 2px dashed #444;
+  --h2-font-mobile: 2.9em;
+  --h2-font-desktop: 3.2rem;
+  --status-font-mobile: .8rem;
+  --progress-height: 16px;
+  --progress-radius: 36px;
+  --pulse-duration: 6s;
+}
+
+body{
+  margin:0;
+  font-family:system-ui;
+  background: var(--bg-gradient);
+  color: var(--text-color);
+  display:flex;
+  height:100vh;
+  align-items:center;
+  justify-content:center;
+}
+
+#box{
+  text-align:center;
+  padding:120px 27px;
+  border-radius:var(--box-radius);
+  background:var(--box-bg);
+  backdrop-filter:blur(var(--box-blur));
+  box-shadow:var(--box-shadow);
+  transition:transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+#box:hover{
+  transform:scale(1.03);
+  box-shadow:0 0 60px rgba(0,255,255,0.2);
+}
+
+h2{
+  margin:10px 0 30px 0;
+  font-size:var(--h2-font-mobile);
+  letter-spacing:1px;
+  color:var(--accent-color);
+}
+
+#drop {
+  position: relative; /* already present */
+  padding: var(--drop-padding-mobile);
+  border-radius: var(--drop-radius-mobile);
+  cursor: pointer;
+  overflow: hidden;
+  font-size: 1.3rem;
+}
+
+#drop progress {
+  display: none; /* κρύβουμε αρχικά */
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: var(--progress-height);
+  margin: 0;
+  border-radius: var(--progress-radius);
+  overflow: hidden;
+  appearance: none;
+  z-index: -2;
+}
+
+
+
+#drop::before{
+  content:'';
+  position:absolute;
+  top:0;
+  left:0;
+  width:100%;
+  height:100%;
+  background:linear-gradient(90deg,rgba(0,255,255,0),rgba(0,255,255,0.3));
+  transform:translateX(-100%);
+  animation:dropPulse var(--pulse-duration) infinite;
+  z-index:0;
+  border-radius:inherit;
+}
+
+#drop *{position:relative;z-index:1;}
+#drop:hover{border-color:var(--accent-color);background:rgba(0,255,255,0.05);box-shadow:0 0 20px rgba(0,255,255,0.2);}
+
+#status{
+  margin-top:14px;
+  font-size:var(--status-font-mobile);
+  color:rgba(0,255,255,0.35);
+  transition:color 0.3s;
+  letter-spacing:.03rem;
+}
+
+progress::-webkit-progress-bar{background:#222;}
+progress::-webkit-progress-value{background:var(--accent-color);animation:pulse var(--pulse-duration) infinite;}
+progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(--pulse-duration) infinite;}
+
+@keyframes pulse{0%{width:20%;}50%{width:80%;}100%{width:20%;}}
+@keyframes dropPulse{0%{transform:translateX(-100%);}50%{transform:translateX(0);}100%{transform:translateX(100%);}}
+
+@media(min-width:1024px){
+  #box{
+    padding:120px 100px;
+    border-radius:40px;
+    box-shadow:0 0 80px rgba(0,255,255,0.25);
+    font-size:1.8rem;
+    transition:transform 0.4s ease,box-shadow 0.4s ease,background 0.4s ease;
+    background:linear-gradient(145deg,rgba(20,20,20,0.7),rgba(30,30,30,0.5));
+  }
+  #box:hover{
+    transform:scale(1.05);
+    box-shadow:0 0 100px rgba(0,255,255,0.35);
+    background:linear-gradient(145deg,rgba(20,20,20,0.8),rgba(30,30,30,0.6));
+  }
+  h2{font-size:var(--h2-font-desktop);}
+  #drop{
+    padding:var(--drop-padding-desktop);
+    border-radius:var(--drop-radius-desktop);
+    border:2px dashed var(--accent-color);
+    background:linear-gradient(135deg,rgba(0,255,255,0.02),rgba(0,255,255,0.05));
+    box-shadow:0 0 30px rgba(0,255,255,0.1);
+    transition:border 0.3s,background 0.3s,box-shadow 0.3s,transform 0.3s;
+  }
+  #drop:hover{
+    background:linear-gradient(135deg,rgba(0,255,255,0.05),rgba(0,255,255,0.1));
+    box-shadow:0 0 50px rgba(0,255,255,0.25);
+    transform:scale(1.02);
+  }
+}
+
+#status{
+  margin-top:14px;
+  font-size:var(--status-font-mobile);
+  color:rgba(0,255,255,0.35);
+  transition:color 0.3s;
+  letter-spacing:.03rem;
+}
+
+
+@keyframes pulse{0%{width:20%;}50%{width:80%;}100%{width:20%;}}
+@keyframes dropPulse{0%{transform:translateX(-100%);}50%{transform:translateX(0);}100%{transform:translateX(100%);}}
+
+@media(min-width:1024px){
+  #box{
+    padding:120px 100px;
+    border-radius:40px;
+    box-shadow:0 0 80px rgba(0,255,255,0.25);
+    font-size:1.8rem;
+    transition:transform 0.4s ease,box-shadow 0.4s ease,background 0.4s ease;
+    background:linear-gradient(145deg,rgba(20,20,20,0.7),rgba(30,30,30,0.5));
+  }
+  #box:hover{
+    transform:scale(1.05);
+    box-shadow:0 0 100px rgba(0,255,255,0.35);
+    background:linear-gradient(145deg,rgba(20,20,20,0.8),rgba(30,30,30,0.6));
+  }
+  h2{font-size:var(--h2-font-desktop);}
+  #drop{
+    padding:var(--drop-padding-desktop);
+    border-radius:var(--drop-radius-desktop);
+    border:2px dashed var(--accent-color);
+    background:linear-gradient(135deg,rgba(0,255,255,0.02),rgba(0,255,255,0.05));
+    box-shadow:0 0 30px rgba(0,255,255,0.1);
+    transition:border 0.3s,background 0.3s,box-shadow 0.3s,transform 0.3s;
+  }
+  #drop:hover{
+    background:linear-gradient(135deg,rgba(0,255,255,0.05),rgba(0,255,255,0.1));
+    box-shadow:0 0 50px rgba(0,255,255,0.25);
+    transform:scale(1.02);
+  }
+}
+
+</style>
+
+
+</head>
+<body>
+
+<div id="box">
+
+  <!-- SVG logo inserted here -->
+  <div id="logo-container">
+    <img src="https://ik.imagekit.io/pg/stelno/stelno-app-official-logo.svg" alt="Stelno Logo" style="width:96px; height:auto; display:block; margin:0 auto;">
+  </div>
+
+  <h2>Stelno</h2>
+  <div id="drop">
+    Drop file or click
+    <progress id="p" value="0" max="100"></progress>
+  </div>
+  <input type="file" id="f" hidden>
+  <div id="status">Initializing...</div>
+</div>
+
 <script type="module">
 /* config */
 const WS = 'wss://stelno.onrender.com';
@@ -19,81 +238,211 @@ let dc, connected=false, fallbackMode=false;
 /* socket */
 const ws = new WebSocket(WS);
 const q = [];
-const sendWS = d => { const m=JSON.stringify(d); ws.readyState===1?ws.send(m):q.push(m); };
-ws.onopen = () => { sendWS({join:r}); s.textContent='Waiting for peer...'; while(q.length) ws.send(q.shift()); };
+
+/* safe send */
+const sendWS = d => {
+  const m = JSON.stringify(d);
+  if(ws.readyState === 1) ws.send(m);
+  else q.push(m);
+};
+
+ws.onopen = () => {
+  sendWS({join:r});
+  s.textContent = 'Waiting for peer...';
+  while(q.length) ws.send(q.shift());
+};
 
 /* WEBRTC */
-const pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
-let makingOffer=false, polite=Math.random()>0.5;
+const pc = new RTCPeerConnection({
+  iceServers: [{urls:'stun:stun.l.google.com:19302'}]
+});
+
+/* PERFECT NEGOTIATION */
+let makingOffer = false;
+const polite = Math.random() > 0.5;
 
 /* setup channel */
 function setup(){
   if(!dc) return;
-  let fileMeta, received=[], expected=0;
 
-  dc.onopen = ()=>{connected=true; fallbackMode=false; s.textContent='Direct connection ⚡';};
-  dc.onclose = dc.onerror = ()=>{connected=false;};
-  dc.onmessage = e => {
-    if(typeof e.data==='string'){ fileMeta=JSON.parse(e.data); received=[]; expected=fileMeta.chunks; prog.value=0; s.textContent=`Receiving ${fileMeta.name} 0% ⚡`; return; }
-    received.push(e.data);
-    prog.value = (received.length/expected)*100;
-    s.textContent = `Receiving ${fileMeta.name} ${Math.floor(prog.value)}% ⚡`;
-    if(received.length===expected){
-      const blob=new Blob(received,{type:fileMeta.type});
-      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fileMeta.name; a.click();
-      s.textContent=`Received ${fileMeta.name} ✅`; prog.value=0;
+  let incomingFile = null;
+  let receivedChunks = [];
+  let expectedChunks = 0;
+  let fileMeta = null;
+
+  dc.onopen = () => {
+    connected = true;
+    fallbackMode = false;
+    s.textContent = 'Direct connection ⚡';
+  };
+
+  dc.onclose = () => { connected = false; };
+  dc.onerror = () => { connected = false; };
+
+  dc.onmessage = async e => {
+    try {
+      if(typeof e.data === 'string'){
+        // metadata JSON
+        const meta = JSON.parse(e.data);
+        fileMeta = meta;
+        incomingFile = [];
+        expectedChunks = meta.chunks;
+        receivedChunks = [];
+        prog.value = 0;
+        s.textContent = `Receiving ${meta.name} via P2P ⚡`;
+      } else {
+        // binary chunk
+        receivedChunks.push(e.data);
+        prog.value = (receivedChunks.length / expectedChunks) * 100;
+
+        if(receivedChunks.length === expectedChunks){
+          const blob = new Blob(receivedChunks, {type: fileMeta.type});
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = fileMeta.name;
+          a.click();
+          s.textContent = `Received ${fileMeta.name} ✅`;
+          prog.value = 0;
+        }
+      }
+    } catch(err){
+      console.error(err);
     }
   };
 }
 
 /* create data channel once */
-dc=pc.createDataChannel('f'); setup();
+dc = pc.createDataChannel('f');
+setup();
 
-/* negotiation */
-pc.onnegotiationneeded = async () => { try{ makingOffer=true; const offer=await pc.createOffer(); await pc.setLocalDescription(offer); sendWS({signal:pc.localDescription}); } finally{ makingOffer=false; } };
-pc.ondatachannel = e => { dc=e.channel; setup(); };
-pc.onicecandidate = e => { if(e.candidate) sendWS({signal:e.candidate}); };
-ws.onmessage = async e => {
-  const d=JSON.parse(e.data);
-  if(d.signal){
-    const collision=d.signal.type==='offer'&&(makingOffer||pc.signalingState!=='stable'), ignore=!polite&&collision;
-    if(ignore) return;
-    if(d.signal.type==='offer'){ await pc.setRemoteDescription(d.signal); const ans=await pc.createAnswer(); await pc.setLocalDescription(ans); sendWS({signal:pc.localDescription}); }
-    else if(d.signal.type==='answer'){ if(pc.signalingState!=='have-local-offer') return; await pc.setRemoteDescription(d.signal); }
-    else if(d.signal.candidate){ try{ await pc.addIceCandidate(d.signal); }catch{} }
+/* negotiation trigger */
+pc.onnegotiationneeded = async () => {
+  try {
+    makingOffer = true;
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    sendWS({signal: pc.localDescription});
+  } finally {
+    makingOffer = false;
   }
-  if(d.file){ s.textContent='Receiving via fallback ☁️'; const a=document.createElement('a'); a.href=HTTP+'/f/'+d.file; a.download='file'; a.click(); }
+};
+
+/* receive channel */
+pc.ondatachannel = e => {
+  dc = e.channel;
+  setup();
+};
+
+/* ICE */
+pc.onicecandidate = e => {
+  if(!e.candidate) return;
+  sendWS({signal:e.candidate});
+};
+
+/* signaling */
+ws.onmessage = async e => {
+  const d = JSON.parse(e.data);
+
+  if(d.signal){
+    const offerCollision =
+      d.signal.type === "offer" &&
+      (makingOffer || pc.signalingState !== "stable");
+    const ignoreOffer = !polite && offerCollision;
+    if(ignoreOffer) return;
+
+    if(d.signal.type === "offer"){
+      await pc.setRemoteDescription(d.signal);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      sendWS({signal: pc.localDescription});
+    }
+    else if(d.signal.type === "answer"){
+      if(pc.signalingState !== "have-local-offer") return;
+      await pc.setRemoteDescription(d.signal);
+    }
+    else if(d.signal.candidate){
+      try{ await pc.addIceCandidate(d.signal); }catch{}
+    }
+  }
+
+  /* fallback receive */
+  if(d.file){
+    s.textContent = 'Receiving via fallback ☁️';
+    const a = document.createElement('a');
+    a.href = HTTP+'/f/'+d.file;
+    a.download = 'file';
+    a.click();
+  }
 };
 
 /* drag/drop + clipboard */
-drop.onclick = async () => { try{ await navigator.clipboard.writeText(location.href); s.textContent='Link copied ✓'; }catch{} f.click(); };
-drop.ondragover = e=>e.preventDefault();
-drop.ondrop = e=>{ e.preventDefault(); sendFile(e.dataTransfer.files[0]); };
-f.onchange = ()=>sendFile(f.files[0]);
+drop.onclick = async () => {
+  try{ await navigator.clipboard.writeText(location.href); s.textContent='Link copied ✓'; }catch{}
+  f.click();
+};
+drop.ondragover = e => e.preventDefault();
+drop.ondrop = e => { e.preventDefault(); sendFile(e.dataTransfer.files[0]); };
+f.onchange = () => sendFile(f.files[0]);
 
 /* fallback timer */
-setTimeout(()=>{ if(!connected){ fallbackMode=true; s.textContent='Using secure fallback ☁️'; } },9000);
+setTimeout(()=>{
+  if(!connected){
+    fallbackMode = true;
+    s.textContent = 'Using secure fallback ☁️';
+  }
+},9000);
 
-/* chunked P2P send with progress and file name */
+/* chunked P2P send */
 async function sendFile(file){
   if(!file) return;
-  s.textContent='Preparing...'; const chunkSize=16*1024, buffer=await file.arrayBuffer(), chunks=Math.ceil(buffer.byteLength/chunkSize);
-  if(!connected && !fallbackMode){ s.textContent='Connecting...'; await new Promise(r=>setTimeout(r,2000)); }
-  s.textContent=`Sending ${file.name} 0%...`;
+
+  s.textContent='Preparing...';
+  prog.value = 0;
+  prog.style.display = 'block'; // show progress
+  const chunkSize = 16*1024; // 16KB
+  const buffer = await file.arrayBuffer();
+  const chunks = Math.ceil(buffer.byteLength / chunkSize);
+
+  if(!connected && !fallbackMode){
+    s.textContent='Connecting...';
+    await new Promise(r=>setTimeout(r,2000));
+  }
+
+  s.textContent='Sending...';
 
   if(connected && !fallbackMode){
+    // send metadata first
     dc.send(JSON.stringify({name:file.name,type:file.type,chunks:chunks}));
+
+    // send binary chunks
     let offset=0;
-    while(offset<buffer.byteLength){
-      while(dc.bufferedAmount>16*chunkSize) await new Promise(r=>setTimeout(r,50));
-      const slice=buffer.slice(offset, offset+chunkSize); dc.send(slice); offset+=chunkSize;
-      prog.value=(offset/buffer.byteLength)*100;
-      s.textContent=`Sending ${file.name} ${Math.floor(prog.value)}% ⚡`;
+    while(offset < buffer.byteLength){
+      while(dc.bufferedAmount > 16*chunkSize) await new Promise(r=>setTimeout(r,50));
+      const slice = buffer.slice(offset, offset+chunkSize);
+      dc.send(slice);
+      offset += chunkSize;
+      prog.value = (offset / buffer.byteLength) * 100;
     }
-    s.textContent=`Sent ${file.name} ✅`; prog.value=0;
+    s.textContent=`Sent ${file.name} via P2P ⚡`;
+    prog.value = 0;
   } else {
+    // fallback
     s.textContent='Uploading... ☁️';
-    try{ const res=await fetch(HTTP,{method:'POST',body:file}); const id=await res.text(); sendWS({file:id}); s.textContent='Sent via fallback ☁️'; }catch{s.textContent='Upload failed ❌';}
+    try{
+      const res = await fetch(HTTP, {method:'POST', body:file});
+      const id = await res.text();
+      sendWS({file:id});
+      s.textContent='Sent via fallback ☁️';
+    }catch{
+      s.textContent='Upload failed ❌';
+    }
   }
+  prog.value = 0;
+  prog.style.display = 'none'; // hide progress after completion
 }
 </script>
+
+
+
+</body>
+</html>
