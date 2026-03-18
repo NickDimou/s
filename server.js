@@ -1,4 +1,4 @@
-/* hybrid server: signaling + temp file relay */
+/* hybrid server: signaling + temp file relay with CORS */
 import { WebSocketServer } from 'ws';
 import http from 'http';
 import fs from 'fs';
@@ -8,10 +8,21 @@ const rooms = {};
 const files = {};
 
 const server = http.createServer((req, res) => {
+  /* --- CORS headers for cross-origin access --- */
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  /* handle preflight requests */
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    return res.end();
+  }
+
   /* fallback upload */
   if (req.method === 'POST') {
     const id = Math.random().toString(36).slice(2);
-    const path = 'tmp_'+id;
+    const path = 'tmp_' + id;
 
     const stream = fs.createWriteStream(path);
     req.pipe(stream);
@@ -71,4 +82,6 @@ wss.on('connection', ws => {
   });
 });
 
-server.listen(port);
+server.listen(port, () => {
+  console.log(`Stelno hybrid server listening on port ${port}`);
+});
