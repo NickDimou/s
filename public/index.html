@@ -24,7 +24,7 @@
   --drop-padding-desktop: 220px 190px;
   --drop-radius-mobile: 36px;
   --drop-radius-desktop: 40px;
-  --drop-border: 2px dashed #444;
+  --drop-border: 2px dashed #1c1c1c;
   --h2-font-mobile: 2.9em;
   --h2-font-desktop: 3.2rem;
   --status-font-mobile: .8rem;
@@ -33,6 +33,7 @@
   --pulse-duration: 6s;
 }
 
+/* layout */
 body{
   margin:0;
   font-family:system-ui;
@@ -66,8 +67,9 @@ h2{
   color:var(--accent-color);
 }
 
+/* drop area */
 #drop {
-  position: relative; /* already present */
+  position: relative;
   padding: var(--drop-padding-mobile);
   border-radius: var(--drop-radius-mobile);
   cursor: pointer;
@@ -76,7 +78,7 @@ h2{
 }
 
 #drop progress {
-  display: none; /* κρύβουμε αρχικά */
+  display: none;
   position: absolute;
   bottom: 0;
   left: 0;
@@ -88,8 +90,6 @@ h2{
   appearance: none;
   z-index: -2;
 }
-
-
 
 #drop::before{
   content:'';
@@ -116,6 +116,7 @@ h2{
   letter-spacing:.03rem;
 }
 
+/* progress styles */
 progress::-webkit-progress-bar{background:#222;}
 progress::-webkit-progress-value{background:var(--accent-color);animation:pulse var(--pulse-duration) infinite;}
 progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(--pulse-duration) infinite;}
@@ -123,48 +124,54 @@ progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(-
 @keyframes pulse{0%{width:20%;}50%{width:80%;}100%{width:20%;}}
 @keyframes dropPulse{0%{transform:translateX(-100%);}50%{transform:translateX(0);}100%{transform:translateX(100%);}}
 
+/* neon check styles */
+.drop-check {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(0,0,0,0.0), rgba(0,0,0,0.12));
+}
+
+.drop-check .tick {
+  font-weight: 700;
+  color: var(--accent-color);
+  text-shadow:
+    0 0 12px rgba(0,255,255,0.55),
+    0 0 30px rgba(0,255,255,0.35),
+    0 0 60px rgba(0,255,255,0.18);
+  transform: scale(0.9);
+  opacity: 0;
+  animation: popIn 220ms cubic-bezier(.2,.9,.3,1) forwards;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 0.9;
+}
+
+/* responsive sizes for the check */
+.drop-check .tick { font-size: 6rem; }
 @media(min-width:1024px){
-  #box{
-    padding:120px 100px;
-    border-radius:40px;
-    box-shadow:0 0 80px rgba(0,255,255,0.25);
-    font-size:1.8rem;
-    transition:transform 0.4s ease,box-shadow 0.4s ease,background 0.4s ease;
-    background:linear-gradient(145deg,rgba(20,20,20,0.7),rgba(30,30,30,0.5));
-  }
-  #box:hover{
-    transform:scale(1.05);
-    box-shadow:0 0 100px rgba(0,255,255,0.35);
-    background:linear-gradient(145deg,rgba(20,20,20,0.8),rgba(30,30,30,0.6));
-  }
-  h2{font-size:var(--h2-font-desktop);}
-  #drop{
-    padding:var(--drop-padding-desktop);
-    border-radius:var(--drop-radius-desktop);
-    border:2px dashed var(--accent-color);
-    background:linear-gradient(135deg,rgba(0,255,255,0.02),rgba(0,255,255,0.05));
-    box-shadow:0 0 30px rgba(0,255,255,0.1);
-    transition:border 0.3s,background 0.3s,box-shadow 0.3s,transform 0.3s;
-  }
-  #drop:hover{
-    background:linear-gradient(135deg,rgba(0,255,255,0.05),rgba(0,255,255,0.1));
-    box-shadow:0 0 50px rgba(0,255,255,0.25);
-    transform:scale(1.02);
-  }
+  .drop-check .tick { font-size: 10rem; }
 }
 
-#status{
-  margin-top:14px;
-  font-size:var(--status-font-mobile);
-  color:rgba(0,255,255,0.35);
-  transition:color 0.3s;
-  letter-spacing:.03rem;
+/* pop animation */
+@keyframes popIn {
+  0% { transform: scale(.7); opacity: 0; filter: blur(6px); }
+  60% { transform: scale(1.06); opacity: 1; filter: blur(0); }
+  100% { transform: scale(1); opacity: 1; }
 }
 
-
-@keyframes pulse{0%{width:20%;}50%{width:80%;}100%{width:20%;}}
-@keyframes dropPulse{0%{transform:translateX(-100%);}50%{transform:translateX(0);}100%{transform:translateX(100%);}}
-
+/* small accessibility helper: visually-hidden text */
+.visually-hidden {
+  position: absolute !important;
+  height: 1px; width: 1px;
+  overflow: hidden;
+  clip: rect(1px, 1px, 1px, 1px);
+  white-space: nowrap;
+}
 @media(min-width:1024px){
   #box{
     padding:120px 100px;
@@ -209,7 +216,7 @@ progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(-
   </div>
 
   <h2>Stelno</h2>
-  <div id="drop">
+  <div id="drop" aria-live="polite" role="button">
     Drop file or click
     <progress id="p" value="0" max="100"></progress>
   </div>
@@ -282,16 +289,17 @@ function setup(){
   dc.onmessage = async e => {
     try {
       if(typeof e.data === 'string'){
-        // metadata JSON
+        /* metadata JSON */
         const meta = JSON.parse(e.data);
         fileMeta = meta;
         incomingFile = [];
         expectedChunks = meta.chunks;
         receivedChunks = [];
         prog.value = 0;
+        prog.style.display = 'block';
         s.textContent = `Receiving ${meta.name} via P2P ⚡`;
       } else {
-        // binary chunk
+        /* binary chunk */
         receivedChunks.push(e.data);
         prog.value = (receivedChunks.length / expectedChunks) * 100;
 
@@ -301,8 +309,14 @@ function setup(){
           a.href = URL.createObjectURL(blob);
           a.download = fileMeta.name;
           a.click();
+
           s.textContent = `Received ${fileMeta.name} ✅`;
+
+          /* show neon check and vibrate */
+          showNeonCheck(5000);
+
           prog.value = 0;
+          prog.style.display = 'none';
         }
       }
     } catch(err){
@@ -367,12 +381,20 @@ ws.onmessage = async e => {
 
   /* fallback receive */
   if(d.file){
-    s.textContent = 'Receiving via fallback ☁️';
+    const n = d.name || 'file';
+    s.textContent = `Receiving ${n} via fallback ☁️`;
+
     const a = document.createElement('a');
     a.href = HTTP+'/f/'+d.file;
-    a.download = 'file';
+    a.download = n;
     a.click();
+
+    /* show neon check and vibrate for fallback receive */
+    showNeonCheck(5000);
+
+    setTimeout(()=>s.textContent = `Received ${n} ✅`, 3000);
   }
+
 };
 
 /* drag/drop + clipboard */
@@ -392,14 +414,55 @@ setTimeout(()=>{
   }
 },9000);
 
+/* helper: show neon check in #drop for `ms` milliseconds */
+let _restoreHTML = null;
+let _checkTimeout = null;
+function showNeonCheck(ms = 5000){
+  try {
+    /* save current innerHTML only if not already showing */
+    if(!drop.hasAttribute('data-check-active')){
+      _restoreHTML = drop.innerHTML;
+      drop.setAttribute('data-check-active', '1');
+
+      /* hide progress while check is visible */
+      if(prog) prog.style.display = 'none';
+
+      /* create neon check element */
+      const checkHTML = '<div class="drop-check" role="status" aria-label="Completed"><div class="tick">✓</div></div>';
+      drop.innerHTML = checkHTML;
+
+      /* haptic feedback if available */
+      try {
+        if(navigator.vibrate) navigator.vibrate([60,30,60]);
+      } catch(e){ /* ignore vibration errors */ }
+
+      /* clear previous timeout if present */
+      if(_checkTimeout) clearTimeout(_checkTimeout);
+
+      /* restore after ms */
+      _checkTimeout = setTimeout(()=>{
+        /* restore innerHTML (progress element will be restored too) */
+        drop.innerHTML = _restoreHTML || 'Drop file or click';
+        drop.removeAttribute('data-check-active');
+        _restoreHTML = null;
+        _checkTimeout = null;
+        /* ensure progress hidden by default */
+        if(prog) prog.style.display = 'none';
+      }, ms);
+    }
+  } catch(err){
+    console.error(err);
+  }
+}
+
 /* chunked P2P send */
 async function sendFile(file){
   if(!file) return;
 
   s.textContent='Preparing...';
   prog.value = 0;
-  prog.style.display = 'block'; // show progress
-  const chunkSize = 16*1024; // 16KB
+  prog.style.display = 'block';
+  const chunkSize = 16*1024; /* 16KB */
   const buffer = await file.arrayBuffer();
   const chunks = Math.ceil(buffer.byteLength / chunkSize);
 
@@ -411,10 +474,10 @@ async function sendFile(file){
   s.textContent='Sending...';
 
   if(connected && !fallbackMode){
-    // send metadata first
+    /* send metadata first */
     dc.send(JSON.stringify({name:file.name,type:file.type,chunks:chunks}));
 
-    // send binary chunks
+    /* send binary chunks */
     let offset=0;
     while(offset < buffer.byteLength){
       while(dc.bufferedAmount > 16*chunkSize) await new Promise(r=>setTimeout(r,50));
@@ -423,22 +486,31 @@ async function sendFile(file){
       offset += chunkSize;
       prog.value = (offset / buffer.byteLength) * 100;
     }
+
     s.textContent=`Sent ${file.name} via P2P ⚡`;
+
+    /* show neon check and vibrate for send completion */
+    showNeonCheck(5000);
+
     prog.value = 0;
+    prog.style.display = 'none';
   } else {
-    // fallback
+    /* fallback */
     s.textContent='Uploading... ☁️';
     try{
       const res = await fetch(HTTP, {method:'POST', body:file});
       const id = await res.text();
-      sendWS({file:id});
+      sendWS({file:id,name:file.name});
       s.textContent='Sent via fallback ☁️';
+
+      /* show neon check and vibrate for fallback send */
+      showNeonCheck(5000);
     }catch{
       s.textContent='Upload failed ❌';
     }
   }
   prog.value = 0;
-  prog.style.display = 'none'; // hide progress after completion
+  prog.style.display = 'none';
 }
 </script>
 
