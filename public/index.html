@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <title>Stelno</title>
 
+<link rel="icon" href="data:,">
+
 <style>
 body{
   margin:0;
@@ -40,7 +42,7 @@ progress{width:100%;margin-top:10px}
 
 <script type="module">
 /* config */
-const WS = 'wss://stelno.onrender.com';
+const WS_URL = 'wss://stelno.onrender.com';
 const HTTP = 'https://stelno.onrender.com';
 
 /* room */
@@ -50,51 +52,74 @@ location.hash = r;
 /* UI */
 const s = document.getElementById('status');
 const prog = document.getElementById('p');
+const drop = document.getElementById('drop');
+const f = document.getElementById('f');
 
 /* state */
 let dc, connected=false, fallbackMode=false;
+let ws;
+let q = [];
 
-/* socket */
-const ws = new WebSocket(WS);
-const q = [];
+/* SAFE WS */
+function connectWS(){
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    safeSend({join:r});
+    flushQueue();
+    s.textContent = 'Waiting for peer...';
+  };
+
+  ws.onclose = () => {
+    s.textContent = 'Reconnecting...';
+    setTimeout(connectWS, 1500);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = handleSignal;
+}
 
 /* safe send */
-const sendWS = d => {
-  const m = JSON.stringify(d);
-  if(ws.readyState===1) ws.send(m);
-  else q.push(m);
-};
+function safeSend(data){
+  const msg = JSON.stringify(data);
+  if(ws.readyState === WebSocket.OPEN){
+    ws.send(msg);
+  } else {
+    q.push(msg);
+  }
+}
 
-ws.onopen = () => {
-  sendWS({join:r});
-  s.textContent = 'Waiting for peer...';
+/* flush */
+function flushQueue(){
+  while(q.length && ws.readyState === WebSocket.OPEN){
+    ws.send(q.shift());
+  }
+}
 
-  /* flush queue */
-  while(q.length) ws.send(q.shift());
-};
+/* start WS */
+connectWS();
 
-/* webrtc */
+/* WEBRTC */
 const pc = new RTCPeerConnection({
   iceServers:[{urls:'stun:stun.l.google.com:19302'}]
 });
 
-/* auto-connect */
+/* create channel */
 (async ()=>{
   dc = pc.createDataChannel('f');
   setup();
 
-  const o = await pc.createOffer();
-  await pc.setLocalDescription(o);
-  sendWS({signal:o});
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  safeSend({signal:offer});
 })();
 
-/* fallback timer */
-setTimeout(()=>{
-  if(!connected){
-    fallbackMode = true;
-    s.textContent = 'Using secure fallback ☁️';
-  }
-},9000);
+/* ICE */
+pc.onicecandidate = e => {
+  if(!e.candidate) return;
+  safeSend({signal:e.candidate});
+};
 
 /* receive channel */
 pc.ondatachannel = e => {
@@ -102,22 +127,16 @@ pc.ondatachannel = e => {
   setup();
 };
 
-/* ice */
-pc.onicecandidate = e => {
-  if(e.candidate)
-    sendWS({signal:e.candidate});
-};
-
-/* signaling */
-ws.onmessage = async e => {
+/* signaling handler */
+async function handleSignal(e){
   const d = JSON.parse(e.data);
 
   if(d.signal){
     if(d.signal.type==='offer'){
       await pc.setRemoteDescription(d.signal);
-      const a = await pc.createAnswer();
-      await pc.setLocalDescription(a);
-      sendWS({signal:a});
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      safeSend({signal:answer});
     }
     else if(d.signal.type==='answer'){
       await pc.setRemoteDescription(d.signal);
@@ -136,9 +155,17 @@ ws.onmessage = async e => {
     a.download = 'file';
     a.click();
   }
-};
+}
 
-/* drag/drop + clipboard FIX */
+/* fallback timer */
+setTimeout(()=>{
+  if(!connected){
+    fallbackMode = true;
+    s.textContent = 'Using secure fallback ☁️';
+  }
+},9000);
+
+/* UI interactions */
 drop.onclick = async () => {
   try{
     await navigator.clipboard.writeText(location.href);
@@ -156,7 +183,7 @@ drop.ondrop = e => {
 
 f.onchange = () => sendFile(f.files[0]);
 
-/* setup channel */
+/* DATA CHANNEL */
 function setup(){
 
   dc.onopen = ()=>{
@@ -184,7 +211,7 @@ function setup(){
   };
 }
 
-/* send logic */
+/* SEND */
 async function sendFile(file){
   if(!file) return;
 
@@ -199,8 +226,8 @@ async function sendFile(file){
 
   /* P2P */
   if(connected && !fallbackMode){
-    const b = await file.arrayBuffer();
-    dc.send(b);
+    const buf = await file.arrayBuffer();
+    dc.send(buf);
     s.textContent='Sent via P2P ⚡';
   }
 
@@ -215,7 +242,7 @@ async function sendFile(file){
 
     const id = await res.text();
 
-    sendWS({file:id});
+    safeSend({file:id});
 
     s.textContent='Sent via fallback ☁️';
   }
