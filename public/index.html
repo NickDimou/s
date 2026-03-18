@@ -68,36 +68,34 @@ h2{
 }
 
 /* drop area */
-#drop {
-  position: relative;
-  padding: var(--drop-padding-mobile);
-  border-radius: var(--drop-radius-mobile);
-  cursor: pointer;
-  overflow: hidden;
-  font-size: 1.3rem;
+#drop{
+  position:relative;
+  padding:var(--drop-padding-mobile);
+  border-radius:var(--drop-radius-mobile);
+  cursor:pointer;
+  overflow:hidden;
+  font-size:1.3rem;
 }
 
-#drop progress {
-  display: none;
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: var(--progress-height);
-  margin: 0;
-  border-radius: var(--progress-radius);
-  overflow: hidden;
-  appearance: none;
-  z-index: -2;
+/* FIXED progress layering */
+#drop progress{
+  display:none;
+  position:absolute;
+  bottom:0;
+  left:0;
+  width:100%;
+  height:var(--progress-height);
+  margin:0;
+  border-radius:var(--progress-radius);
+  overflow:hidden;
+  appearance:none;
+  z-index:1;
 }
 
 #drop::before{
   content:'';
   position:absolute;
-  top:0;
-  left:0;
-  width:100%;
-  height:100%;
+  inset:0;
   background:linear-gradient(90deg,rgba(0,255,255,0),rgba(0,255,255,0.3));
   transform:translateX(-100%);
   animation:dropPulse var(--pulse-duration) infinite;
@@ -106,7 +104,12 @@ h2{
 }
 
 #drop *{position:relative;z-index:1;}
-#drop:hover{border-color:var(--accent-color);background:rgba(0,255,255,0.05);box-shadow:0 0 20px rgba(0,255,255,0.2);}
+
+#drop:hover{
+  border-color:var(--accent-color);
+  background:rgba(0,255,255,0.05);
+  box-shadow:0 0 20px rgba(0,255,255,0.2);
+}
 
 #status{
   margin-top:14px;
@@ -118,60 +121,75 @@ h2{
 
 /* progress styles */
 progress::-webkit-progress-bar{background:#222;}
-progress::-webkit-progress-value{background:var(--accent-color);animation:pulse var(--pulse-duration) infinite;}
-progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(--pulse-duration) infinite;}
+progress::-webkit-progress-value{background:var(--accent-color);}
+progress::-moz-progress-bar{background:var(--accent-color);}
 
-@keyframes pulse{0%{width:20%;}50%{width:80%;}100%{width:20%;}}
-@keyframes dropPulse{0%{transform:translateX(-100%);}50%{transform:translateX(0);}100%{transform:translateX(100%);}}
-
-/* neon check styles */
-.drop-check {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2;
-  pointer-events: none;
-  background: linear-gradient(90deg, rgba(0,0,0,0.0), rgba(0,0,0,0.12));
+/* animations */
+@keyframes dropPulse{
+  0%{transform:translateX(-100%);}
+  50%{transform:translateX(0);}
+  100%{transform:translateX(100%);}
 }
 
-.drop-check .tick {
-  font-weight: 700;
-  color: var(--accent-color);
-  text-shadow:
-    0 0 12px rgba(0,255,255,0.55),
-    0 0 30px rgba(0,255,255,0.35),
-    0 0 60px rgba(0,255,255,0.18);
-  transform: scale(0.9);
-  opacity: 0;
-  animation: popIn 220ms cubic-bezier(.2,.9,.3,1) forwards;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  line-height: 0.9;
+/* ========================= */
+/* ✅ SVG CHECK OVERLAY */
+/* ========================= */
+
+#check{
+  position:absolute;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  pointer-events:none;
+  opacity:0;
+  transition:opacity .25s ease;
+  z-index:3;
 }
 
-/* responsive sizes for the check */
-.drop-check .tick { font-size: 6rem; }
-@media(min-width:1024px){
-  .drop-check .tick { font-size: 10rem; }
+/* svg styling */
+#check svg{
+  width:120px;
+  height:120px;
+  stroke:var(--accent-color);
+  stroke-width:6;
+  fill:none;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+
+  filter:
+    drop-shadow(0 0 12px rgba(0,255,255,0.6))
+    drop-shadow(0 0 30px rgba(0,255,255,0.3));
+
+  stroke-dasharray:100;
+  stroke-dashoffset:100;
 }
 
-/* pop animation */
-@keyframes popIn {
-  0% { transform: scale(.7); opacity: 0; filter: blur(6px); }
-  60% { transform: scale(1.06); opacity: 1; filter: blur(0); }
-  100% { transform: scale(1); opacity: 1; }
+/* animate draw */
+#check.show{
+  opacity:1;
 }
 
-/* small accessibility helper: visually-hidden text */
-.visually-hidden {
-  position: absolute !important;
-  height: 1px; width: 1px;
-  overflow: hidden;
-  clip: rect(1px, 1px, 1px, 1px);
-  white-space: nowrap;
+#check.show svg{
+  animation:drawCheck .5s ease forwards;
 }
+
+@keyframes drawCheck{
+  to{
+    stroke-dashoffset:0;
+  }
+}
+
+/* accessibility */
+.visually-hidden{
+  position:absolute!important;
+  height:1px;width:1px;
+  overflow:hidden;
+  clip:rect(1px,1px,1px,1px);
+  white-space:nowrap;
+}
+
+/* desktop */
 @media(min-width:1024px){
   #box{
     padding:120px 100px;
@@ -181,12 +199,15 @@ progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(-
     transition:transform 0.4s ease,box-shadow 0.4s ease,background 0.4s ease;
     background:linear-gradient(145deg,rgba(20,20,20,0.7),rgba(30,30,30,0.5));
   }
+
   #box:hover{
     transform:scale(1.05);
     box-shadow:0 0 100px rgba(0,255,255,0.35);
     background:linear-gradient(145deg,rgba(20,20,20,0.8),rgba(30,30,30,0.6));
   }
+
   h2{font-size:var(--h2-font-desktop);}
+
   #drop{
     padding:var(--drop-padding-desktop);
     border-radius:var(--drop-radius-desktop);
@@ -195,14 +216,20 @@ progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(-
     box-shadow:0 0 30px rgba(0,255,255,0.1);
     transition:border 0.3s,background 0.3s,box-shadow 0.3s,transform 0.3s;
   }
+
   #drop:hover{
     background:linear-gradient(135deg,rgba(0,255,255,0.05),rgba(0,255,255,0.1));
     box-shadow:0 0 50px rgba(0,255,255,0.25);
     transform:scale(1.02);
   }
-}
 
+  #check svg{
+    width:160px;
+    height:160px;
+  }
+}
 </style>
+
 
 
 </head>
@@ -216,10 +243,17 @@ progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(-
   </div>
 
   <h2>Stelno</h2>
-  <div id="drop" aria-live="polite" role="button">
+  <div id="drop">
     Drop file or click
     <progress id="p" value="0" max="100"></progress>
+    <div id="check">
+      <svg viewBox="0 0 52 52">
+        <path d="M14 27 L22 35 L38 18"/>
+      </svg>
+    </div>
+
   </div>
+
   <input type="file" id="f" hidden>
   <div id="status">Initializing...</div>
 </div>
@@ -238,6 +272,8 @@ const s = document.getElementById('status');
 const prog = document.getElementById('p');
 const drop = document.getElementById('drop');
 const f = document.getElementById('f');
+const check = document.getElementById('check');
+
 
 /* state */
 let dc, connected=false, fallbackMode=false;
@@ -418,42 +454,27 @@ setTimeout(()=>{
 let _restoreHTML = null;
 let _checkTimeout = null;
 function showNeonCheck(ms = 5000){
-  try {
-    /* save current innerHTML only if not already showing */
-    if(!drop.hasAttribute('data-check-active')){
-      _restoreHTML = drop.innerHTML;
-      drop.setAttribute('data-check-active', '1');
+  try{
+    if(!check) return;
 
-      /* hide progress while check is visible */
-      if(prog) prog.style.display = 'none';
+    /* show overlay */
+    check.classList.add('show');
 
-      /* create neon check element */
-      const checkHTML = '<div class="drop-check" role="status" aria-label="Completed"><div class="tick">✓</div></div>';
-      drop.innerHTML = checkHTML;
+    /* optional haptic */
+    try{
+      if(navigator.vibrate) navigator.vibrate([60,30,60]);
+    }catch(e){}
 
-      /* haptic feedback if available */
-      try {
-        if(navigator.vibrate) navigator.vibrate([60,30,60]);
-      } catch(e){ /* ignore vibration errors */ }
+    /* hide after delay */
+    setTimeout(()=>{
+      check.classList.remove('show');
+    }, ms);
 
-      /* clear previous timeout if present */
-      if(_checkTimeout) clearTimeout(_checkTimeout);
-
-      /* restore after ms */
-      _checkTimeout = setTimeout(()=>{
-        /* restore innerHTML (progress element will be restored too) */
-        drop.innerHTML = _restoreHTML || 'Drop file or click';
-        drop.removeAttribute('data-check-active');
-        _restoreHTML = null;
-        _checkTimeout = null;
-        /* ensure progress hidden by default */
-        if(prog) prog.style.display = 'none';
-      }, ms);
-    }
-  } catch(err){
+  }catch(err){
     console.error(err);
   }
 }
+
 
 /* chunked P2P send */
 async function sendFile(file){
