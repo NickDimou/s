@@ -213,9 +213,20 @@ progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(-
     Drop file or click
     <progress id="p" value="0" max="100"></progress>
   </div>
-  <input type="file" id="f" hidden>
+ <input type="file" id="f" hidden multiple>
   <div id="status">Initializing...</div>
 </div>
+
+
+
+
+
+
+
+
+
+
+
 
 <script type="module">
 /* config */
@@ -381,8 +392,15 @@ drop.onclick = async () => {
   f.click();
 };
 drop.ondragover = e => e.preventDefault();
-drop.ondrop = e => { e.preventDefault(); sendFile(e.dataTransfer.files[0]); };
-f.onchange = () => sendFile(f.files[0]);
+drop.ondrop = e => {
+  e.preventDefault();
+  for (const file of e.dataTransfer.files) sendFile(file);
+};
+
+f.onchange = () => {
+  for (const file of f.files) sendFile(file);
+};
+
 
 /* fallback timer */
 setTimeout(()=>{
@@ -441,6 +459,38 @@ async function sendFile(file){
   prog.style.display = 'none'; // hide progress after completion
 }
 </script>
+
+
+
+
+
+<script type="module">
+/* show big checkmark on send/receive completion */
+function showCheckmark() {
+  const drop = document.getElementById('drop');
+  const original = drop.textContent;
+  drop.textContent = '✔';
+  drop.style.fontSize = '4rem';
+  drop.style.transition = 'all 0.3s ease';
+  setTimeout(() => {
+    drop.textContent = original;
+    drop.style.fontSize = '1.3rem';
+  }, 5000);
+}
+
+/* override s.textContent setter to detect completion */
+const status = document.getElementById('status');
+let observer = new MutationObserver(mutations => {
+  mutations.forEach(m => {
+    const txt = status.textContent;
+    if(txt.includes('Sent') || txt.includes('Received')){
+      showCheckmark();
+    }
+  });
+});
+observer.observe(status, { characterData: true, subtree: true, childList: true });
+</script>
+
 
 
 
