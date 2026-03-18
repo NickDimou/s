@@ -167,7 +167,7 @@ progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(-
 
 @media(min-width:1024px){
   #box{
-    padding:120px 100px;
+    padding:90px 70px;
     border-radius:40px;
     box-shadow:0 0 80px rgba(0,255,255,0.25);
     font-size:1.8rem;
@@ -464,32 +464,7 @@ async function sendFile(file){
 
 
 
-<script type="module">
-/* show big checkmark on send/receive completion */
-function showCheckmark() {
-  const drop = document.getElementById('drop');
-  const original = drop.textContent;
-  drop.textContent = '✔';
-  drop.style.fontSize = '4rem';
-  drop.style.transition = 'all 0.3s ease';
-  setTimeout(() => {
-    drop.textContent = original;
-    drop.style.fontSize = '1.3rem';
-  }, 5000);
-}
 
-/* override s.textContent setter to detect completion */
-const status = document.getElementById('status');
-let observer = new MutationObserver(mutations => {
-  mutations.forEach(m => {
-    const txt = status.textContent;
-    if(txt.includes('Sent') || txt.includes('Received')){
-      showCheckmark();
-    }
-  });
-});
-observer.observe(status, { characterData: true, subtree: true, childList: true });
-</script>
 
 
 
