@@ -16,9 +16,7 @@ body{
   align-items:center;
   justify-content:center;
 }
-#box{
-  text-align:center;
-}
+#box{text-align:center}
 #drop{
   border:2px dashed #444;
   padding:40px;
@@ -37,33 +35,41 @@ progress{width:100%;margin-top:10px}
   <h2>Stelno ⚡</h2>
   <div id="drop">Drop file or click</div>
   <input type="file" id="f" hidden>
-  <div id="status">Waiting for connection...</div>
+  <div id="status">Initializing...</div>
   <progress id="p" value="0" max="100"></progress>
 </div>
 
 <script type="module">
 /* config */
-const WS = 'wss://YOUR_RENDER_URL';
-const HTTP = 'https://YOUR_RENDER_URL';
+const WS = 'wss://stelno.onrender.com';
+const HTTP = 'https://stelno.onrender.com';
 
 /* room */
 const r = location.hash.slice(1) || Math.random().toString(36).slice(2);
 location.hash = r;
 
+/* auto-copy link */
+navigator.clipboard?.writeText(location.href);
+
 /* UI */
 const s = document.getElementById('status');
 const prog = document.getElementById('p');
 
+/* state */
+let dc, connected=false, fallbackMode=false;
+
 /* socket */
 const ws = new WebSocket(WS);
-ws.onopen = () => ws.send(JSON.stringify({join:r}));
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({join:r}));
+  s.textContent = 'Waiting for peer...';
+};
 
 /* webrtc */
-let pc = new RTCPeerConnection({
+const pc = new RTCPeerConnection({
   iceServers:[{urls:'stun:stun.l.google.com:19302'}]
 });
-
-let dc, connected=false;
 
 /* auto-connect */
 (async ()=>{
@@ -75,13 +81,13 @@ let dc, connected=false;
   ws.send(JSON.stringify({signal:o}));
 })();
 
-/* fallback timer */
+/* fallback timer (render-safe) */
 setTimeout(()=>{
   if(!connected){
-    s.textContent = 'Switching to fallback...';
     fallbackMode = true;
+    s.textContent = 'Using secure fallback ☁️';
   }
-},4000);
+},9000);
 
 /* receive channel */
 pc.ondatachannel = e => {
@@ -116,6 +122,8 @@ ws.onmessage = async e => {
 
   /* fallback receive */
   if(d.file){
+    s.textContent = 'Receiving via fallback ☁️';
+
     const a = document.createElement('a');
     a.href = HTTP+'/f/'+d.file;
     a.download = 'file';
@@ -126,20 +134,34 @@ ws.onmessage = async e => {
 /* drag/drop */
 drop.onclick = () => f.click();
 drop.ondragover = e => e.preventDefault();
+
 drop.ondrop = e => {
   e.preventDefault();
   send(e.dataTransfer.files[0]);
 };
+
 f.onchange = () => send(f.files[0]);
 
 /* setup channel */
 function setup(){
+
   dc.onopen = ()=>{
-    connected=true;
+    connected = true;
+    fallbackMode = false;
     s.textContent = 'Direct connection ⚡';
   };
 
+  dc.onclose = ()=>{
+    connected = false;
+  };
+
+  dc.onerror = ()=>{
+    connected = false;
+  };
+
   dc.onmessage = e => {
+    s.textContent = 'Receiving via P2P ⚡';
+
     const blob = new Blob([e.data]);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -148,11 +170,17 @@ function setup(){
   };
 }
 
-let fallbackMode=false;
-
 /* send logic */
 async function send(file){
   if(!file) return;
+
+  s.textContent='Preparing...';
+
+  /* wait if connection in progress */
+  if(!connected && !fallbackMode){
+    s.textContent='Connecting...';
+    await new Promise(r=>setTimeout(r,2000));
+  }
 
   s.textContent='Sending...';
 
@@ -165,12 +193,15 @@ async function send(file){
 
   /* fallback */
   else{
+    s.textContent='Uploading... ☁️';
+
     const res = await fetch(HTTP,{
       method:'POST',
       body:file
     });
 
     const id = await res.text();
+
     ws.send(JSON.stringify({file:id}));
 
     s.textContent='Sent via fallback ☁️';
