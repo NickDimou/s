@@ -19,202 +19,81 @@ let dc, connected=false, fallbackMode=false;
 /* socket */
 const ws = new WebSocket(WS);
 const q = [];
-
-/* safe send */
-const sendWS = d => {
-  const m = JSON.stringify(d);
-  if(ws.readyState === 1) ws.send(m);
-  else q.push(m);
-};
-
-ws.onopen = () => {
-  sendWS({join:r});
-  s.textContent = 'Waiting for peer...';
-  while(q.length) ws.send(q.shift());
-};
+const sendWS = d => { const m=JSON.stringify(d); ws.readyState===1?ws.send(m):q.push(m); };
+ws.onopen = () => { sendWS({join:r}); s.textContent='Waiting for peer...'; while(q.length) ws.send(q.shift()); };
 
 /* WEBRTC */
-const pc = new RTCPeerConnection({
-  iceServers: [{urls:'stun:stun.l.google.com:19302'}]
-});
-
-/* PERFECT NEGOTIATION */
-let makingOffer = false;
-const polite = Math.random() > 0.5;
+const pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+let makingOffer=false, polite=Math.random()>0.5;
 
 /* setup channel */
 function setup(){
   if(!dc) return;
+  let fileMeta, received=[], expected=0;
 
-  let incomingFile = null;
-  let receivedChunks = [];
-  let expectedChunks = 0;
-  let fileMeta = null;
-
-  dc.onopen = () => {
-    connected = true;
-    fallbackMode = false;
-    s.textContent = 'Direct connection ⚡';
-  };
-
-  dc.onclose = () => { connected = false; };
-  dc.onerror = () => { connected = false; };
-
-  dc.onmessage = async e => {
-    try {
-      if(typeof e.data === 'string'){
-        // metadata JSON
-        const meta = JSON.parse(e.data);
-        fileMeta = meta;
-        incomingFile = [];
-        expectedChunks = meta.chunks;
-        receivedChunks = [];
-        prog.value = 0;
-        s.textContent = `Receiving ${meta.name} via P2P ⚡`;
-      } else {
-        // binary chunk
-        receivedChunks.push(e.data);
-        prog.value = (receivedChunks.length / expectedChunks) * 100;
-
-        if(receivedChunks.length === expectedChunks){
-          const blob = new Blob(receivedChunks, {type: fileMeta.type});
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
-          a.download = fileMeta.name;
-          a.click();
-          s.textContent = `Received ${fileMeta.name} ✅`;
-          prog.value = 0;
-        }
-      }
-    } catch(err){
-      console.error(err);
+  dc.onopen = ()=>{connected=true; fallbackMode=false; s.textContent='Direct connection ⚡';};
+  dc.onclose = dc.onerror = ()=>{connected=false;};
+  dc.onmessage = e => {
+    if(typeof e.data==='string'){ fileMeta=JSON.parse(e.data); received=[]; expected=fileMeta.chunks; prog.value=0; s.textContent=`Receiving ${fileMeta.name} 0% ⚡`; return; }
+    received.push(e.data);
+    prog.value = (received.length/expected)*100;
+    s.textContent = `Receiving ${fileMeta.name} ${Math.floor(prog.value)}% ⚡`;
+    if(received.length===expected){
+      const blob=new Blob(received,{type:fileMeta.type});
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fileMeta.name; a.click();
+      s.textContent=`Received ${fileMeta.name} ✅`; prog.value=0;
     }
   };
 }
 
 /* create data channel once */
-dc = pc.createDataChannel('f');
-setup();
+dc=pc.createDataChannel('f'); setup();
 
-/* negotiation trigger */
-pc.onnegotiationneeded = async () => {
-  try {
-    makingOffer = true;
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    sendWS({signal: pc.localDescription});
-  } finally {
-    makingOffer = false;
-  }
-};
-
-/* receive channel */
-pc.ondatachannel = e => {
-  dc = e.channel;
-  setup();
-};
-
-/* ICE */
-pc.onicecandidate = e => {
-  if(!e.candidate) return;
-  sendWS({signal:e.candidate});
-};
-
-/* signaling */
+/* negotiation */
+pc.onnegotiationneeded = async () => { try{ makingOffer=true; const offer=await pc.createOffer(); await pc.setLocalDescription(offer); sendWS({signal:pc.localDescription}); } finally{ makingOffer=false; } };
+pc.ondatachannel = e => { dc=e.channel; setup(); };
+pc.onicecandidate = e => { if(e.candidate) sendWS({signal:e.candidate}); };
 ws.onmessage = async e => {
-  const d = JSON.parse(e.data);
-
+  const d=JSON.parse(e.data);
   if(d.signal){
-    const offerCollision =
-      d.signal.type === "offer" &&
-      (makingOffer || pc.signalingState !== "stable");
-    const ignoreOffer = !polite && offerCollision;
-    if(ignoreOffer) return;
-
-    if(d.signal.type === "offer"){
-      await pc.setRemoteDescription(d.signal);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      sendWS({signal: pc.localDescription});
-    }
-    else if(d.signal.type === "answer"){
-      if(pc.signalingState !== "have-local-offer") return;
-      await pc.setRemoteDescription(d.signal);
-    }
-    else if(d.signal.candidate){
-      try{ await pc.addIceCandidate(d.signal); }catch{}
-    }
+    const collision=d.signal.type==='offer'&&(makingOffer||pc.signalingState!=='stable'), ignore=!polite&&collision;
+    if(ignore) return;
+    if(d.signal.type==='offer'){ await pc.setRemoteDescription(d.signal); const ans=await pc.createAnswer(); await pc.setLocalDescription(ans); sendWS({signal:pc.localDescription}); }
+    else if(d.signal.type==='answer'){ if(pc.signalingState!=='have-local-offer') return; await pc.setRemoteDescription(d.signal); }
+    else if(d.signal.candidate){ try{ await pc.addIceCandidate(d.signal); }catch{} }
   }
-
-  /* fallback receive */
-  if(d.file){
-    s.textContent = 'Receiving via fallback ☁️';
-    const a = document.createElement('a');
-    a.href = HTTP+'/f/'+d.file;
-    a.download = 'file';
-    a.click();
-  }
+  if(d.file){ s.textContent='Receiving via fallback ☁️'; const a=document.createElement('a'); a.href=HTTP+'/f/'+d.file; a.download='file'; a.click(); }
 };
 
 /* drag/drop + clipboard */
-drop.onclick = async () => {
-  try{ await navigator.clipboard.writeText(location.href); s.textContent='Link copied ✓'; }catch{}
-  f.click();
-};
-drop.ondragover = e => e.preventDefault();
-drop.ondrop = e => { e.preventDefault(); sendFile(e.dataTransfer.files[0]); };
-f.onchange = () => sendFile(f.files[0]);
+drop.onclick = async () => { try{ await navigator.clipboard.writeText(location.href); s.textContent='Link copied ✓'; }catch{} f.click(); };
+drop.ondragover = e=>e.preventDefault();
+drop.ondrop = e=>{ e.preventDefault(); sendFile(e.dataTransfer.files[0]); };
+f.onchange = ()=>sendFile(f.files[0]);
 
 /* fallback timer */
-setTimeout(()=>{
-  if(!connected){
-    fallbackMode = true;
-    s.textContent = 'Using secure fallback ☁️';
-  }
-},9000);
+setTimeout(()=>{ if(!connected){ fallbackMode=true; s.textContent='Using secure fallback ☁️'; } },9000);
 
-/* chunked P2P send */
+/* chunked P2P send with progress and file name */
 async function sendFile(file){
   if(!file) return;
-
-  s.textContent='Preparing...';
-  const chunkSize = 16*1024; // 16KB
-  const buffer = await file.arrayBuffer();
-  const chunks = Math.ceil(buffer.byteLength / chunkSize);
-
-  if(!connected && !fallbackMode){
-    s.textContent='Connecting...';
-    await new Promise(r=>setTimeout(r,2000));
-  }
-
-  s.textContent='Sending...';
+  s.textContent='Preparing...'; const chunkSize=16*1024, buffer=await file.arrayBuffer(), chunks=Math.ceil(buffer.byteLength/chunkSize);
+  if(!connected && !fallbackMode){ s.textContent='Connecting...'; await new Promise(r=>setTimeout(r,2000)); }
+  s.textContent=`Sending ${file.name} 0%...`;
 
   if(connected && !fallbackMode){
-    // send metadata first
     dc.send(JSON.stringify({name:file.name,type:file.type,chunks:chunks}));
-
-    // send binary chunks
     let offset=0;
-    while(offset < buffer.byteLength){
-      while(dc.bufferedAmount > 16*chunkSize) await new Promise(r=>setTimeout(r,50));
-      const slice = buffer.slice(offset, offset+chunkSize);
-      dc.send(slice);
-      offset += chunkSize;
-      prog.value = (offset / buffer.byteLength) * 100;
+    while(offset<buffer.byteLength){
+      while(dc.bufferedAmount>16*chunkSize) await new Promise(r=>setTimeout(r,50));
+      const slice=buffer.slice(offset, offset+chunkSize); dc.send(slice); offset+=chunkSize;
+      prog.value=(offset/buffer.byteLength)*100;
+      s.textContent=`Sending ${file.name} ${Math.floor(prog.value)}% ⚡`;
     }
-    s.textContent=`Sent ${file.name} via P2P ⚡`;
-    prog.value = 0;
+    s.textContent=`Sent ${file.name} ✅`; prog.value=0;
   } else {
-    // fallback
     s.textContent='Uploading... ☁️';
-    try{
-      const res = await fetch(HTTP, {method:'POST', body:file});
-      const id = await res.text();
-      sendWS({file:id});
-      s.textContent='Sent via fallback ☁️';
-    }catch{
-      s.textContent='Upload failed ❌';
-    }
+    try{ const res=await fetch(HTTP,{method:'POST',body:file}); const id=await res.text(); sendWS({file:id}); s.textContent='Sent via fallback ☁️'; }catch{s.textContent='Upload failed ❌';}
   }
 }
 </script>
