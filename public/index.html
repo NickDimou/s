@@ -63,7 +63,7 @@ const q = [];
 /* safe send */
 const sendWS = d => {
   const m = JSON.stringify(d);
-  if(ws.readyState===1) ws.send(m);
+  if(ws.readyState === 1) ws.send(m);
   else q.push(m);
 };
 
@@ -75,12 +75,35 @@ ws.onopen = () => {
 
 /* WEBRTC */
 const pc = new RTCPeerConnection({
-  iceServers:[{urls:'stun:stun.l.google.com:19302'}]
+  iceServers: [{urls:'stun:stun.l.google.com:19302'}]
 });
 
 /* PERFECT NEGOTIATION */
 let makingOffer = false;
 const polite = Math.random() > 0.5;
+
+/* setup channel function MUST be defined first */
+function setup(){
+  if(!dc) return;
+
+  dc.onopen = () => {
+    connected = true;
+    fallbackMode = false;
+    s.textContent = 'Direct connection ⚡';
+  };
+
+  dc.onclose = () => { connected = false; };
+  dc.onerror = () => { connected = false; };
+
+  dc.onmessage = e => {
+    s.textContent = 'Receiving via P2P ⚡';
+    const blob = new Blob([e.data]);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'file';
+    a.click();
+  };
+}
 
 /* create data channel once */
 dc = pc.createDataChannel('f');
@@ -88,7 +111,7 @@ setup();
 
 /* negotiation trigger */
 pc.onnegotiationneeded = async () => {
-  try{
+  try {
     makingOffer = true;
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -118,7 +141,6 @@ ws.onmessage = async e => {
     const offerCollision =
       d.signal.type === "offer" &&
       (makingOffer || pc.signalingState !== "stable");
-
     const ignoreOffer = !polite && offerCollision;
     if(ignoreOffer) return;
 
@@ -140,7 +162,6 @@ ws.onmessage = async e => {
   /* fallback receive */
   if(d.file){
     s.textContent = 'Receiving via fallback ☁️';
-
     const a = document.createElement('a');
     a.href = HTTP+'/f/'+d.file;
     a.download = 'file';
@@ -148,7 +169,60 @@ ws.onmessage = async e => {
   }
 };
 
+/* drag/drop + clipboard */
+drop.onclick = async () => {
+  try{ await navigator.clipboard.writeText(location.href); s.textContent='Link copied ✓'; }catch{}
+  f.click();
+};
+drop.ondragover = e => e.preventDefault();
+drop.ondrop = e => {
+  e.preventDefault();
+  sendFile(e.dataTransfer.files[0]);
+};
+f.onchange = () => sendFile(f.files[0]);
+
+/* fallback timer */
+setTimeout(()=>{
+  if(!connected){
+    fallbackMode = true;
+    s.textContent = 'Using secure fallback ☁️';
+  }
+},9000);
+
+/* send logic */
+async function sendFile(file){
+  if(!file) return;
+
+  s.textContent = 'Preparing...';
+
+  if(!connected && !fallbackMode){
+    s.textContent = 'Connecting...';
+    await new Promise(r=>setTimeout(r,2000));
+  }
+
+  s.textContent = 'Sending...';
+
+  /* P2P */
+  if(connected && !fallbackMode){
+    const b = await file.arrayBuffer();
+    dc.send(b);
+    s.textContent = 'Sent via P2P ⚡';
+  }
+  /* fallback */
+  else{
+    s.textContent = 'Uploading... ☁️';
+    try{
+      const res = await fetch(HTTP, {method:'POST', body:file});
+      const id = await res.text();
+      sendWS({file:id});
+      s.textContent = 'Sent via fallback ☁️';
+    }catch{
+      s.textContent = 'Upload failed ❌';
+    }
+  }
+}
 </script>
+
 
 </body>
 </html>
