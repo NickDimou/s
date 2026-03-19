@@ -50,51 +50,53 @@ wss.on('connection', ws => {
   let room;
 
   ws.on('message', msg => {
-	const d = JSON.parse(msg);
+	  const d = JSON.parse(msg);
+  
+	  if (d.join) {
+		room = d.join;
+		rooms[room] = rooms[room] || [];
+	  
+		/* avoid duplicate pushes */
+		if (!rooms[room].includes(ws)) rooms[room].push(ws);
+	  
+		/* tell existing peers someone joined */
+		if (rooms[room].length > 1) {
+		  rooms[room].forEach(c => {
+			if (c !== ws && c.readyState === 1)
+			  c.send(JSON.stringify({ peerJoined: true }));
+		  });
+	  
+		  /* tell the new peer the room is live */
+		  if (ws.readyState === 1)
+			ws.send(JSON.stringify({ roomReady: true }));
+		}
+	  }
 
-	if (d.join) {
-	  room = d.join;
-	  rooms[room] = rooms[room] || [];
-
-	  /* avoid duplicates */
-	  if (!rooms[room].includes(ws)) rooms[room].push(ws);
-
-	  /* let existing peers know someone joined */
-	  if (rooms[room].length > 1) {
+  
+	  if (d.signal && room) {
 		rooms[room].forEach(c => {
 		  if (c !== ws && c.readyState === 1)
-			c.send(JSON.stringify({ peerJoined: true }));
+			c.send(JSON.stringify({ signal: d.signal }));
 		});
-
-		/* let the new peer know the room already has someone */
-		if (ws.readyState === 1)
-		  ws.send(JSON.stringify({ roomReady: true }));
 	  }
-	}
-
-	if (d.signal && room) {
-	  rooms[room].forEach(c => {
-		if (c !== ws && c.readyState === 1)
-		  c.send(JSON.stringify({ signal: d.signal }));
-	  });
-	}
-
-	/* fallback notify */
-	if (d.file && room) {
-	  rooms[room].forEach(c => {
-		if (c !== ws && c.readyState === 1)
-		  c.send(JSON.stringify({ file: d.file }));
-	  });
-	}
-
-	/* late peer discovery */
-	if (d.checkPeers && room) {
-	  rooms[room].forEach(c => {
-		if (c !== ws && c.readyState === 1)
-		  c.send(JSON.stringify({ checkPeers: true }));
-	  });
-	}
+  
+	  /* fallback notify */
+	  if (d.file && room) {
+		rooms[room].forEach(c => {
+		  if (c !== ws && c.readyState === 1)
+			c.send(JSON.stringify({ file: d.file }));
+		});
+	  }
+  
+	  /* late peer discovery */
+	  if (d.checkPeers && room) {
+		rooms[room].forEach(c => {
+		  if (c !== ws && c.readyState === 1)
+			c.send(JSON.stringify({ checkPeers: true }));
+		});
+	  }
   });
+
 
   ws.on('close', () => {
 	if (room && rooms[room]) {
