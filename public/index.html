@@ -9,11 +9,11 @@
 <meta name="organization" content="<?php echo $owner; ?>">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 
-<title>Stelno</title>
+<title class="noTrans">Stelno</title>
 
 <style>
 :root{
-  --bg-gradient: linear-gradient(145deg,#0a0a0a,#1c1c1c);
+  --bg-gradient: linear-gradient(145deg,#030504,#1c1c1c);
   --text-color: #fafafa;
   --accent-color: #0ff;
   --box-bg: rgba(20,20,20,0.5);
@@ -66,8 +66,10 @@ h2{
   color:var(--accent-color);
 }
 
+.logo{width:70px; height:auto; display:block; margin:0 auto;}
+
 #drop {
-  position: relative; /* already present */
+  position: relative;
   padding: var(--drop-padding-mobile);
   border-radius: var(--drop-radius-mobile);
   cursor: pointer;
@@ -76,7 +78,7 @@ h2{
 }
 
 #drop progress {
-  display: none; /* κρύβουμε αρχικά */
+  display: none;
   position: absolute;
   bottom: 0;
   left: 0;
@@ -88,8 +90,6 @@ h2{
   appearance: none;
   z-index: -2;
 }
-
-
 
 #drop::before{
   content:'';
@@ -116,51 +116,41 @@ h2{
   letter-spacing:.03rem;
 }
 
+/* ── Cancel button ── */
+#cancel {
+  display: none;
+  margin-top: 12px;
+  background: transparent;
+  border: 1px solid rgba(0,255,255,0.35);
+  color: rgba(0,255,255,0.6);
+  border-radius: 24px;
+  padding: 5px 20px;
+  font-size: .72rem;
+  font-family: system-ui;
+  letter-spacing: .06rem;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+#cancel:hover {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+  box-shadow: 0 0 12px rgba(0,255,255,0.2);
+}
+
+/* ── Speed / ETA line ── */
+#xfer-info {
+  display: none;
+  margin-top: 5px;
+  font-size: .7rem;
+  color: rgba(0,255,255,0.45);
+  letter-spacing: .04rem;
+}
+
 progress::-webkit-progress-bar{background:#222;}
 progress::-webkit-progress-value{background:var(--accent-color);animation:pulse var(--pulse-duration) infinite;}
 progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(--pulse-duration) infinite;}
 
-@keyframes pulse{0%{width:20%;}50%{width:80%;}100%{width:20%;}}
-@keyframes dropPulse{0%{transform:translateX(-100%);}50%{transform:translateX(0);}100%{transform:translateX(100%);}}
-
-@media(min-width:1024px){
-  #box{
-    padding:120px 100px;
-    border-radius:40px;
-    box-shadow:0 0 80px rgba(0,255,255,0.25);
-    font-size:1.8rem;
-    transition:transform 0.4s ease,box-shadow 0.4s ease,background 0.4s ease;
-    background:linear-gradient(145deg,rgba(20,20,20,0.7),rgba(30,30,30,0.5));
-  }
-  #box:hover{
-    transform:scale(1.05);
-    box-shadow:0 0 100px rgba(0,255,255,0.35);
-    background:linear-gradient(145deg,rgba(20,20,20,0.8),rgba(30,30,30,0.6));
-  }
-  h2{font-size:var(--h2-font-desktop);}
-  #drop{
-    padding:var(--drop-padding-desktop);
-    border-radius:var(--drop-radius-desktop);
-    border:2px dashed var(--accent-color);
-    background:linear-gradient(135deg,rgba(0,255,255,0.02),rgba(0,255,255,0.05));
-    box-shadow:0 0 30px rgba(0,255,255,0.1);
-    transition:border 0.3s,background 0.3s,box-shadow 0.3s,transform 0.3s;
-  }
-  #drop:hover{
-    background:linear-gradient(135deg,rgba(0,255,255,0.05),rgba(0,255,255,0.1));
-    box-shadow:0 0 50px rgba(0,255,255,0.25);
-    transform:scale(1.02);
-  }
-}
-
-#status{
-  margin-top:14px;
-  font-size:var(--status-font-mobile);
-  color:rgba(0,255,255,0.35);
-  transition:color 0.3s;
-  letter-spacing:.03rem;
-}
-
+#translate { display: none !important; }
 
 @keyframes pulse{0%{width:20%;}50%{width:80%;}100%{width:20%;}}
 @keyframes dropPulse{0%{transform:translateX(-100%);}50%{transform:translateX(0);}100%{transform:translateX(100%);}}
@@ -180,6 +170,7 @@ progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(-
     background:linear-gradient(145deg,rgba(20,20,20,0.8),rgba(30,30,30,0.6));
   }
   h2{font-size:var(--h2-font-desktop);}
+  .logo{width:96px;}
   #drop{
     padding:var(--drop-padding-desktop);
     border-radius:var(--drop-radius-desktop);
@@ -194,38 +185,34 @@ progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(-
     transform:scale(1.02);
   }
 }
-
 </style>
-
 
 </head>
 <body>
 
 <div id="box">
 
-  <!-- SVG logo inserted here -->
-  <div id="logo-container">
-    <img src="https://ik.imagekit.io/pg/stelno/stelno-app-official-logo.svg" alt="Stelno Logo" style="width:96px; height:auto; display:block; margin:0 auto;">
-  </div>
-
-  <h2>Stelno</h2>
-  <div id="drop">
-    Drop file or click
-    <progress id="p" value="0" max="100"></progress>
-  </div>
+ <div id="logo-container">
+   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 466 458" class="logo">
+     <g fill="none" fill-rule="evenodd">
+       <path fill="#0ff" fill-rule="nonzero" stroke="#000" stroke-width="5" d="M255.75 135.58q-1.46.48-2.92.48-55.59.48-73.13 21.94-13.17 16.7 6.58 30.05 14.62 9.54 41.68 10.5 43.15 1.9 74.6 6.67 30.7 4.3 54.84 14.79 24.13 10.5 38.75 24.08 14.63 13.6 20.85 30.05 6.21 16.45 3.65 32.44-2.55 15.97-14.99 31t-33.27 26.47Q351.54 375.5 319 382.42q-32.54 6.9-72.03 6.91h-18.29q-9.5-.48-20.47-.47h-32.9q-29.26.95-57.78 7.63T70 410.79a320 320 0 0 0-36.57 17.42q-17.55 9.77-23.03 13.59A146 146 0 0 0 2 448q78.24-95.4 110.42-155.02 0 .96.37 2.87.36 1.9 2.56 7.15a27 27 0 0 0 6.94 9.54q4.76 4.29 15.36 8.1 10.6 3.82 25.96 4.78h84.83q26.32-.96 43.5-7.4 17.2-6.44 20.48-15.26a21.7 21.7 0 0 0-.73-17.4q-4.02-8.6-19.38-15.03-15.35-6.44-37.29-6.92-24.13-.95-38.76-1.9-87.02-3.35-124.31-44.37-32.91-35.76-10.97-75.83 23.4-41.98 91.4-59.15 35.85-9.06 78.98-9.54h7.32a388 388 0 0 0 63.62-7.15q31.44-6.21 53.38-14.79a591 591 0 0 0 39.85-17.17q17.92-8.58 26.7-14.79L451 13q-43.49 48.73-74.12 88.33-29.65 38.33-47.27 68.12.73-1.44.36-3.58-.36-2.14-4.02-7.63t-10.6-9.78-22.3-8.1-37.3-4.78Z"/>
+       <text fill="#000" font-family="Helvetica" font-size="28" transform="translate(2 13)">
+         <tspan x="61.18" y="434">®</tspan>
+       </text>
+     </g>
+   </svg>
+ </div>
+ <h2 class="noTrans">Stelno</h2>
+ <div id="drop">
+   Drop file or click
+   <progress id="p" value="0" max="100"></progress>
+ </div>
  <input type="file" id="f" hidden multiple>
-  <div id="status">Initializing...</div>
-</div>
-
-
-
-
-
-
-
-
-
-
+ <div id="status">Initializing...</div>
+ <!-- Speed / ETA line (shown during active transfers) -->
+ <div id="xfer-info"></div>
+ <!-- Cancel button (shown during active transfers) -->
+ <button id="cancel">✕ Cancel</button>
 
 
 <script type="module">
@@ -238,252 +225,446 @@ const r = location.hash.slice(1) || Math.random().toString(36).slice(2);
 location.hash = r;
 
 /* UI */
-const s = document.getElementById('status');
-const prog = document.getElementById('p');
-const drop = document.getElementById('drop');
-const f = document.getElementById('f');
+const s        = document.getElementById('status');
+const prog     = document.getElementById('p');
+const drop     = document.getElementById('drop');
+const f        = document.getElementById('f');
+const cancelBtn = document.getElementById('cancel');
+const xferInfo  = document.getElementById('xfer-info');
 
-/* state */
-let dc, connected=false, fallbackMode=false;
+/* ── transfer state (module-level so cancel can reset receive side too) ── */
+let cancelTransfer  = false;
+let receivedChunks  = [];
+let expectedChunks  = 0;
+let fileMeta        = null;
+let rcvStartTime    = 0;   // for receive-side speed
 
-/* socket */
+/* ── helpers ── */
+function showCancel()  { cancelBtn.style.display = 'inline-block'; }
+function hideCancel()  { cancelBtn.style.display = 'none'; }
+function showXferInfo(txt) { xferInfo.style.display = 'block'; xferInfo.textContent = txt; }
+function hideXferInfo()    { xferInfo.style.display = 'none'; xferInfo.textContent = ''; }
+
+function fmtSpeed(bps) {
+  if (bps >= 1048576) return `${(bps / 1048576).toFixed(1)} MB/s`;
+  return `${(bps / 1024).toFixed(0)} KB/s`;
+}
+function fmtETA(sec) {
+  if (!isFinite(sec) || sec < 0) return '—';
+  if (sec >= 60) return `${Math.ceil(sec / 60)}m left`;
+  return `${Math.ceil(sec)}s left`;
+}
+
+/* cancel button click */
+cancelBtn.onclick = () => {
+  cancelTransfer = true;
+  /* reset receive state in case we're on the receiving end */
+  receivedChunks = [];
+  expectedChunks = 0;
+  fileMeta       = null;
+  prog.value     = 0;
+  prog.style.display = 'none';
+  hideCancel();
+  hideXferInfo();
+  s.textContent = 'Transfer cancelled ✕';
+};
+
+/* ── socket ── */
+let dc, connected = false, fallbackMode = false;
 const ws = new WebSocket(WS);
-const q = [];
+const q  = [];
 
-/* safe send */
 const sendWS = d => {
   const m = JSON.stringify(d);
-  if(ws.readyState === 1) ws.send(m);
+  if (ws.readyState === 1) ws.send(m);
   else q.push(m);
 };
 
 ws.onopen = () => {
-  sendWS({join:r});
+  sendWS({ join: r });
   s.textContent = 'Waiting for peer...';
-  while(q.length) ws.send(q.shift());
+  while (q.length) ws.send(q.shift());
 
-  /* late peer discovery ping */
-  setInterval(()=>{
-    if(!connected) sendWS({checkPeers:true});
-  },5000); /* every 5s until connected */
-
+  setInterval(() => {
+    if (!connected) sendWS({ checkPeers: true });
+  }, 5000);
 };
 
-/* WEBRTC */
+/* ── WebRTC ── */
 const pc = new RTCPeerConnection({
-  iceServers: [{urls:'stun:stun.l.google.com:19302'}]
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
 });
 
-/* PERFECT NEGOTIATION */
 let makingOffer = false;
-const polite = Math.random() > 0.5;
+const polite    = Math.random() > 0.5;
 
-/* setup channel */
-function setup(){
-  if(!dc) return;
+/* setup data channel */
+function setup() {
+  if (!dc) return;
 
-  let incomingFile = null;
-  let receivedChunks = [];
-  let expectedChunks = 0;
-  let fileMeta = null;
-
-  dc.onopen = () => {
-    connected = true;
-    fallbackMode = false;
-    s.textContent = 'Direct connection ⚡';
-  };
-
+  dc.onopen  = () => { connected = true; fallbackMode = false; s.textContent = 'Direct connection ⚡'; };
   dc.onclose = () => { connected = false; };
   dc.onerror = () => { connected = false; };
 
   dc.onmessage = async e => {
     try {
-      if(typeof e.data === 'string'){
-        // metadata JSON
-        const meta = JSON.parse(e.data);
-        fileMeta = meta;
-        incomingFile = [];
-        expectedChunks = meta.chunks;
+      if (typeof e.data === 'string') {
+        /* ── incoming file metadata ── */
+        const meta     = JSON.parse(e.data);
+        fileMeta       = meta;
         receivedChunks = [];
-        prog.value = 0;
-        s.textContent = `Receiving ${meta.name} via P2P ⚡`;
-      } else {
-        // binary chunk
-        receivedChunks.push(e.data);
-        prog.value = (receivedChunks.length / expectedChunks) * 100;
+        expectedChunks = meta.chunks;
+        rcvStartTime   = Date.now();
+        cancelTransfer = false;
 
-        if(receivedChunks.length === expectedChunks){
-          const blob = new Blob(receivedChunks, {type: fileMeta.type});
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
+        prog.value         = 0;
+        prog.style.display = 'block';   /* ← receive-side bar now visible */
+        showCancel();
+        s.textContent = `Receiving ${shortName(meta.name)} via P2P ⚡`;
+
+      } else {
+        /* ── binary chunk ── */
+        if (cancelTransfer) return;     /* silently drop chunks after cancel */
+
+        receivedChunks.push(e.data);
+        const pct = receivedChunks.length / expectedChunks;
+        prog.value = pct * 100;
+
+        /* receive-side speed + ETA */
+        const elapsed  = (Date.now() - rcvStartTime) / 1000 || 0.001;
+        const rcvBytes = receivedChunks.length * 16 * 1024; /* approx */
+        const speed    = rcvBytes / elapsed;
+        const remaining = ((expectedChunks - receivedChunks.length) * 16 * 1024) / speed;
+        showXferInfo(`↓ ${fmtSpeed(speed)}  —  ${fmtETA(remaining)}`);
+
+        if (receivedChunks.length === expectedChunks) {
+          const blob = new Blob(receivedChunks, { type: fileMeta.type });
+          const a    = document.createElement('a');
+          a.href     = URL.createObjectURL(blob);
           a.download = fileMeta.name;
           a.click();
-          s.textContent = `Received ${fileMeta.name} ✅`;
-          prog.value = 0;
+          s.textContent      = `Received ${shortName(fileMeta.name)} ✅`;
+          prog.value         = 0;
+          prog.style.display = 'none';
+          hideCancel();
+          hideXferInfo();
         }
       }
-    } catch(err){
-      console.error(err);
-    }
+    } catch (err) { console.error(err); }
   };
 }
 
-/* create data channel once */
 dc = pc.createDataChannel('f');
 setup();
 
-/* negotiation trigger */
 pc.onnegotiationneeded = async () => {
   try {
     makingOffer = true;
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    sendWS({signal: pc.localDescription});
+    sendWS({ signal: pc.localDescription });
   } finally {
     makingOffer = false;
   }
 };
 
-/* receive channel */
-pc.ondatachannel = e => {
-  dc = e.channel;
-  setup();
-};
+pc.ondatachannel = e => { dc = e.channel; setup(); };
 
-/* ICE */
 pc.onicecandidate = e => {
-  if(!e.candidate) return;
-  sendWS({signal:e.candidate});
+  if (!e.candidate) return;
+  sendWS({ signal: e.candidate });
 };
 
 /* signaling */
 ws.onmessage = async e => {
   const d = JSON.parse(e.data);
 
-  /* late join trigger */
-  if(d.checkPeers && !connected){
-    try{
+  if (d.checkPeers && !connected) {
+    try {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      sendWS({signal: pc.localDescription});
-    }catch(err){ console.error(err); }
+      sendWS({ signal: pc.localDescription });
+    } catch (err) { console.error(err); }
   }
 
-
-  if(d.signal){
+  if (d.signal) {
     const offerCollision =
-      d.signal.type === "offer" &&
-      (makingOffer || pc.signalingState !== "stable");
+      d.signal.type === 'offer' &&
+      (makingOffer || pc.signalingState !== 'stable');
     const ignoreOffer = !polite && offerCollision;
-    if(ignoreOffer) return;
+    if (ignoreOffer) return;
 
-    if(d.signal.type === "offer"){
+    if (d.signal.type === 'offer') {
       await pc.setRemoteDescription(d.signal);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      sendWS({signal: pc.localDescription});
-    }
-    else if(d.signal.type === "answer"){
-      if(pc.signalingState !== "have-local-offer") return;
+      sendWS({ signal: pc.localDescription });
+    } else if (d.signal.type === 'answer') {
+      if (pc.signalingState !== 'have-local-offer') return;
       await pc.setRemoteDescription(d.signal);
-    }
-    else if(d.signal.candidate){
-      try{ await pc.addIceCandidate(d.signal); }catch{}
+    } else if (d.signal.candidate) {
+      try { await pc.addIceCandidate(d.signal); } catch {}
     }
   }
 
   /* fallback receive */
-  if(d.file){
+  if (d.file) {
     s.textContent = 'Receiving via fallback ☁️';
-    const a = document.createElement('a');
-    a.href = HTTP+'/f/'+d.file;
+    const a    = document.createElement('a');
+    a.href     = HTTP + '/f/' + d.file;
     a.download = 'file';
     a.click();
   }
 };
 
-/* drag/drop + clipboard */
+/* drag / drop / click */
 drop.onclick = async () => {
-  try{ await navigator.clipboard.writeText(location.href); s.textContent='Link copied ✓'; }catch{}
+  try { await navigator.clipboard.writeText(location.href); s.textContent = 'Link copied ✓'; } catch {}
   f.click();
 };
 drop.ondragover = e => e.preventDefault();
-drop.ondrop = e => {
-  e.preventDefault();
-  for (const file of e.dataTransfer.files) sendFile(file);
-};
-
-f.onchange = () => {
-  for (const file of f.files) sendFile(file);
-};
-
+drop.ondrop     = e => { e.preventDefault(); for (const file of e.dataTransfer.files) sendFile(file); };
+f.onchange      = () => { for (const file of f.files) sendFile(file); };
 
 /* fallback timer */
-setTimeout(()=>{
-  if(!connected){
-    fallbackMode = true;
-    s.textContent = 'Using secure fallback ☁️';
+setTimeout(() => {
+  if (!connected) { fallbackMode = true; s.textContent = 'Using secure fallback ☁️'; }
+}, 30000);
+
+/* ── chunked P2P send ── */
+async function sendFile(file) {
+  if (!file) return;
+
+  cancelTransfer = false;
+  const chunkSize = 16 * 1024;
+  const buffer    = await file.arrayBuffer();
+  const chunks    = Math.ceil(buffer.byteLength / chunkSize);
+
+  s.textContent      = 'Preparing...';
+  prog.value         = 0;
+  prog.style.display = 'block';
+  showCancel();
+  hideXferInfo();
+
+  if (!connected && !fallbackMode) {
+    s.textContent = 'Connecting...';
+    await new Promise(resolve => setTimeout(resolve, 2000));
   }
-},30000);
 
-/* chunked P2P send */
-async function sendFile(file){
-  if(!file) return;
+  if (cancelTransfer) { prog.style.display = 'none'; hideCancel(); return; }
 
-  s.textContent='Preparing...';
-  prog.value = 0;
-  prog.style.display = 'block'; // show progress
-  const chunkSize = 16*1024; // 16KB
-  const buffer = await file.arrayBuffer();
-  const chunks = Math.ceil(buffer.byteLength / chunkSize);
+  s.textContent = 'Sending...';
+  playSound();
 
-  if(!connected && !fallbackMode){
-    s.textContent='Connecting...';
-    await new Promise(r=>setTimeout(r,2000));
-  }
+  if (connected && !fallbackMode) {
+    dc.send(JSON.stringify({ name: file.name, type: file.type, chunks }));
 
-  s.textContent='Sending...';
+    let offset    = 0;
+    let startTime = Date.now();
+    let lastUI    = startTime;
 
-  if(connected && !fallbackMode){
-    // send metadata first
-    dc.send(JSON.stringify({name:file.name,type:file.type,chunks:chunks}));
+    while (offset < buffer.byteLength) {
+      if (cancelTransfer) {
+        prog.value         = 0;
+        prog.style.display = 'none';
+        hideCancel();
+        hideXferInfo();
+        s.textContent = 'Transfer cancelled ✕';
+        return;
+      }
+      while (dc.bufferedAmount > 16 * chunkSize) await new Promise(r => setTimeout(r, 50));
 
-    // send binary chunks
-    let offset=0;
-    while(offset < buffer.byteLength){
-      while(dc.bufferedAmount > 16*chunkSize) await new Promise(r=>setTimeout(r,50));
-      const slice = buffer.slice(offset, offset+chunkSize);
+      const slice = buffer.slice(offset, offset + chunkSize);
       dc.send(slice);
       offset += chunkSize;
-      prog.value = (offset / buffer.byteLength) * 100;
+
+      prog.value = Math.min((offset / buffer.byteLength) * 100, 100);
+
+      /* update speed/ETA at most every 300 ms */
+      const now = Date.now();
+      if (now - lastUI > 300) {
+        const elapsed  = (now - startTime) / 1000 || 0.001;
+        const speed    = offset / elapsed;                          /* bytes/s */
+        const bytesLeft = buffer.byteLength - offset;
+        const eta      = bytesLeft / speed;
+        showXferInfo(`↑ ${fmtSpeed(speed)}  —  ${fmtETA(eta)}`);
+        lastUI = now;
+      }
     }
-    s.textContent=`Sent ${file.name} via P2P ⚡`;
-    prog.value = 0;
+
+    s.textContent      = `Sent ${shortName(file.name)} via P2P ⚡`;
+    prog.value         = 0;
+    prog.style.display = 'none';
+    hideCancel();
+    hideXferInfo();
+
   } else {
-    // fallback
-    s.textContent='Uploading... ☁️';
-    try{
-      const res = await fetch(HTTP, {method:'POST', body:file});
-      const id = await res.text();
-      sendWS({file:id});
-      s.textContent='Sent via fallback ☁️';
-    }catch{
-      s.textContent='Upload failed ❌';
+    /* fallback HTTP upload */
+    s.textContent = 'Uploading... ☁️';
+    try {
+      const res = await fetch(HTTP, { method: 'POST', body: file });
+      const id  = await res.text();
+      sendWS({ file: id });
+      s.textContent = 'Sent via fallback ☁️';
+    } catch {
+      s.textContent = 'Upload failed ❌';
     }
+    prog.value         = 0;
+    prog.style.display = 'none';
+    hideCancel();
+    hideXferInfo();
   }
-  prog.value = 0;
-  prog.style.display = 'none'; // hide progress after completion
+}
+
+function shortName(name, max = 20) {
+  if (name.length <= max) return name;
+  const ext = name.includes('.') ? '.' + name.split('.').pop() : '';
+  return name.slice(0, max - ext.length - 3) + '...' + ext;
 }
 </script>
 
 
+<script>
+  function playSound() {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.0, ctx.currentTime);
+    master.gain.linearRampToValueAtTime(0.75, ctx.currentTime + 0.05);
+    master.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 3.2);
+    master.connect(ctx.destination);
+
+    const bufLen = ctx.sampleRate * 3.5;
+    const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for(let i=0;i<bufLen;i++) data[i]=Math.random()*2-1;
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+    const bandpass = ctx.createBiquadFilter();
+    bandpass.type = 'bandpass';
+    bandpass.frequency.setValueAtTime(200, ctx.currentTime);
+    bandpass.frequency.exponentialRampToValueAtTime(4000, ctx.currentTime+1.0);
+    bandpass.frequency.exponentialRampToValueAtTime(800, ctx.currentTime+2.0);
+    bandpass.Q.value = 0.8;
+    const whooshGain = ctx.createGain();
+    whooshGain.gain.setValueAtTime(1.2, ctx.currentTime);
+    whooshGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+3.0);
+    noise.connect(bandpass); bandpass.connect(whooshGain); whooshGain.connect(master);
+    noise.start(); noise.stop(ctx.currentTime+3.5);
+
+    const rumble = ctx.createOscillator();
+    rumble.type = 'sawtooth';
+    rumble.frequency.setValueAtTime(40, ctx.currentTime);
+    rumble.frequency.exponentialRampToValueAtTime(180, ctx.currentTime+0.6);
+    rumble.frequency.exponentialRampToValueAtTime(60, ctx.currentTime+2.5);
+    const rumbleFilter = ctx.createBiquadFilter();
+    rumbleFilter.type = 'lowpass'; rumbleFilter.frequency.value = 300;
+    const rumbleGain = ctx.createGain();
+    rumbleGain.gain.setValueAtTime(0.9, ctx.currentTime);
+    rumbleGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+2.8);
+    rumble.connect(rumbleFilter); rumbleFilter.connect(rumbleGain); rumbleGain.connect(master);
+    rumble.start(); rumble.stop(ctx.currentTime+3.0);
+
+    const whine = ctx.createOscillator();
+    whine.type = 'sine';
+    whine.frequency.setValueAtTime(300, ctx.currentTime);
+    whine.frequency.exponentialRampToValueAtTime(3200, ctx.currentTime+0.9);
+    whine.frequency.exponentialRampToValueAtTime(200, ctx.currentTime+1.8);
+    const whineGain = ctx.createGain();
+    whineGain.gain.setValueAtTime(0.0, ctx.currentTime);
+    whineGain.gain.linearRampToValueAtTime(0.4, ctx.currentTime+0.3);
+    whineGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+2.2);
+    whine.connect(whineGain); whineGain.connect(master);
+    whine.start(); whine.stop(ctx.currentTime+2.5);
+
+    const crackBuf = ctx.createBuffer(1, ctx.sampleRate*0.15, ctx.sampleRate);
+    const crackData = crackBuf.getChannelData(0);
+    for(let i=0;i<crackData.length;i++) crackData[i]=(Math.random()*2-1)*Math.exp(-i/(ctx.sampleRate*0.02));
+    const crack = ctx.createBufferSource();
+    crack.buffer = crackBuf;
+    const crackGain = ctx.createGain(); crackGain.gain.value = 1.5;
+    crack.connect(crackGain); crackGain.connect(master);
+    crack.start(ctx.currentTime+0.05);
+
+    setTimeout(()=>ctx.close(), 4000);
+  }
+</script>
 
 
+<script>
+  /* Haptic feedback for mobile */
+  const haptic = (pattern = [40]) => {
+    if ('vibrate' in navigator) navigator.vibrate(pattern);
+  };
+  document.getElementById('drop').addEventListener('click', () => haptic([10]));
+  document.getElementById('drop').addEventListener('dragover', () => haptic([5]));
+  document.getElementById('drop').addEventListener('drop', () => haptic([10, 50, 10]));
+  document.getElementById('f').addEventListener('change', () => haptic([10, 50, 10]));
+</script>
 
 
+<script>
+ function initTranslate() {
+   translate.language.setLocal('english');
+   translate.service.use('client.edge');
+   translate.selectLanguageTag.show = false;
 
+   const removed = [];
+   document.querySelectorAll('.noTrans').forEach(el => {
+     const placeholder = document.createComment('noTrans');
+     el.parentNode.insertBefore(placeholder, el);
+     el.parentNode.removeChild(el);
+     removed.push({ el, placeholder });
+   });
 
+   const browserLang = (navigator.language || navigator.userLanguage || 'en').toLowerCase();
+   const langMap = {
+     'zh': 'chinese_simplified',
+     'zh-cn': 'chinese_simplified',
+     'zh-tw': 'chinese_traditional',
+     'zh-hk': 'chinese_traditional',
+     'es': 'spanish',
+     'fr': 'french',
+     'de': 'german',
+     'it': 'italian',
+     'pt': 'portuguese',
+     'ru': 'russian',
+     'ja': 'japanese',
+     'ko': 'korean',
+     'ar': 'arabic',
+     'nl': 'dutch',
+     'pl': 'polish',
+     'tr': 'turkish',
+     'vi': 'vietnamese',
+     'th': 'thai',
+     'id': 'indonesian',
+     'hi': 'hindi',
+     'el': 'greek',
+   };
+   const targetLang = langMap[browserLang] || langMap[browserLang.split('-')[0]];
+   if (targetLang) translate.changeLanguage(targetLang);
 
+   translate.execute();
 
+   setTimeout(() => {
+     removed.forEach(({ el, placeholder }) => {
+       placeholder.parentNode.insertBefore(el, placeholder);
+       placeholder.parentNode.removeChild(placeholder);
+     });
+   }, 10);
+ }
+</script>
+<script>
+  const _log = console.log;
+  console.log = (...args) => {
+    if (args.some(a => typeof a === 'string' && a.includes('translate.js'))) return;
+    _log(...args);
+  };
+</script>
+<script
+  src="https://cdn.jsdelivr.net/gh/xnx3/translate@master/translate.js/translate.js"
+  onload="initTranslate()"
+></script>
+
+</div>
 </body>
 </html>
