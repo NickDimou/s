@@ -47,7 +47,7 @@ body{
 
 #box{
   text-align:center;
-  padding:45px 10px;
+  padding:30px 25px;
   border-radius:var(--box-radius);
   background:var(--box-bg);
   backdrop-filter:blur(var(--box-blur));
@@ -67,7 +67,7 @@ h2{
   color:var(--accent-color);
 }
 
-.logo{width:70px;height:auto;display:block;margin:0 auto;}
+.logo{width:60px;height:auto;display:block;margin:0 auto;}
 
 #drop{
   position:relative;
@@ -230,7 +230,7 @@ progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(-
 
 @media(min-width:1024px){
   #box{
-    padding:90px 70px;
+    padding:30px 60px;
     border-radius:40px;
     box-shadow:0 0 80px rgba(0,255,255,0.25);
     font-size:1.8rem;
@@ -243,7 +243,7 @@ progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(-
     background:linear-gradient(145deg,rgba(20,20,20,0.8),rgba(30,30,30,0.6));
   }
   h2{font-size:var(--h2-font-desktop);}
-  .logo{width:96px;}
+  .logo{width:80px;}
   #drop{
     padding:var(--drop-padding-desktop);
     border-radius:var(--drop-radius-desktop);
@@ -366,6 +366,29 @@ let receivedChunks = [];
 let expectedChunks = 0;
 let fileMeta       = null;
 let rcvStartTime   = 0;
+
+/* ── file queue + fallback guard ── */
+const MAX_FALLBACK_SIZE = 100 * 1024 * 1024; /* 100MB */
+const fileQueue = [];
+let sendingFile = false;
+
+function enqueueFile(file) {
+  if (!file) return;
+  fileQueue.push(file);
+  processQueue();
+}
+
+async function processQueue() {
+  if (sendingFile || !fileQueue.length) return;
+  sendingFile = true;
+  try {
+    await sendFile(fileQueue.shift());
+  } finally {
+    sendingFile = false;
+    processQueue();
+  }
+}
+
 
 /* ── UI helpers ── */
 function showCancel()      { cancelBtn.style.display = 'inline-block'; }
@@ -576,8 +599,27 @@ drop.onclick = async () => {
   f.click();
 };
 drop.ondragover = e => e.preventDefault();
-drop.ondrop     = e => { e.preventDefault(); for (const file of e.dataTransfer.files) sendFile(file); };
-f.onchange      = () => { for (const file of f.files) sendFile(file); };
+drop.ondrop = e => {
+  e.preventDefault();
+  for (const file of e.dataTransfer.files) enqueueFile(file);
+};
+
+f.onchange = () => {
+  for (const file of f.files) enqueueFile(file);
+};
+
+
+/* ── paste support ── */
+document.addEventListener('paste', e => {
+  const items = e.clipboardData?.items || [];
+  for (const item of items) {
+    if (item.kind === 'file') {
+      const file = item.getAsFile();
+      if (file) enqueueFile(file);
+    }
+  }
+});
+
 
 /* ── fallback timer ── */
 setTimeout(() => {
@@ -642,7 +684,14 @@ async function sendFile(file) {
     prog.value = 0; prog.style.display = 'none';
     hideCancel(); hideXferInfo();
 
-  } else {
+    } else {
+    if (file.size > MAX_FALLBACK_SIZE) {
+      s.textContent = 'File too large for fallback ⚠️';
+      prog.value = 0; prog.style.display = 'none';
+      hideCancel(); hideXferInfo();
+      return;
+    }
+
     s.textContent = 'Uploading... ☁️';
     try {
       const res = await fetch(HTTP, { method: 'POST', body: file });
@@ -655,6 +704,7 @@ async function sendFile(file) {
     prog.value = 0; prog.style.display = 'none';
     hideCancel(); hideXferInfo();
   }
+
 }
 
 function shortName(name, max = 20) {
