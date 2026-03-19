@@ -261,6 +261,12 @@ ws.onopen = () => {
   sendWS({join:r});
   s.textContent = 'Waiting for peer...';
   while(q.length) ws.send(q.shift());
+
+  /* late peer discovery ping */
+  setInterval(()=>{
+    if(!connected) sendWS({checkPeers:true});
+  },5000); /* every 5s until connected */
+
 };
 
 /* WEBRTC */
@@ -354,6 +360,16 @@ pc.onicecandidate = e => {
 ws.onmessage = async e => {
   const d = JSON.parse(e.data);
 
+  /* late join trigger */
+  if(d.checkPeers && !connected){
+    try{
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      sendWS({signal: pc.localDescription});
+    }catch(err){ console.error(err); }
+  }
+
+
   if(d.signal){
     const offerCollision =
       d.signal.type === "offer" &&
@@ -408,7 +424,7 @@ setTimeout(()=>{
     fallbackMode = true;
     s.textContent = 'Using secure fallback ☁️';
   }
-},9000);
+},30000);
 
 /* chunked P2P send */
 async function sendFile(file){
