@@ -105,6 +105,8 @@ h2{
 
 #drop *{position:relative;z-index:1;}
 #drop:hover{border-color:var(--accent-color);background:rgba(0,255,255,0.05);box-shadow:0 0 20px rgba(0,255,255,0.2);}
+#drop.drag { border-color: var(--accent-color); }
+
 
 /* ── Room link bar ── */
 #room-bar{
@@ -436,8 +438,18 @@ ws.onopen = () => {
 
 /* ── WebRTC ── */
 const pc = new RTCPeerConnection({
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+ iceServers: [
+   { urls: 'stun:stun.l.google.com:19302' },
+   {
+     urls: 'turn:stun.cloudflare.com:3478',
+     username: 'b4aae85474d13009d9e71f2a60fee4908f1da1f44ae3dec6d18d046238483e2360225ee6588',
+     credential: 'aba9b169546eb6dcc7bfb1cdf34544cf95b5161d602e365fa7c8342b2e9802fb'
+   }
+ ]
+
 });
+
+
 
 let makingOffer = false;
 const polite    = Math.random() > 0.5;
