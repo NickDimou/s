@@ -689,7 +689,11 @@ progress::-moz-progress-bar{
   };
 
   /* ── drag / drop / click ── */
-  drop.onclick = async () => { try { await navigator.clipboard.writeText(location.href); s.textContent = 'Link copied ✓'; } catch {} };
+  /*drop.onclick = async () => { try { await navigator.clipboard.writeText(location.href); s.textContent = 'Link copied ✓'; } catch {} };*/
+  drop.onclick = () => {
+      f.click(); /* open file selector */
+  };
+
   drop.ondragover = e => e.preventDefault();
   drop.ondrop = e => { e.preventDefault(); for (const file of e.dataTransfer.files) enqueueFile(file); };
   f.onchange = () => { for (const file of f.files) enqueueFile(file); };
