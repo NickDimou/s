@@ -402,426 +402,380 @@ progress::-moz-progress-bar{
 
 
 <script type="module">
-/* ── config ── */
-const WS   = 'wss://stelno.onrender.com';
-const HTTP = 'https://stelno.onrender.com';
+  /* ── config ── */
+  const WS   = 'wss://stelno.onrender.com';
+  const HTTP = 'https://stelno.onrender.com';
 
-/* ── room ── */
-const r = location.hash.slice(1) || Math.random().toString(36).slice(2);
-location.hash = r;
+  /* ── room ── */
+  const r = location.hash.slice(1) || Math.random().toString(36).slice(2);
+  location.hash = r;
 
-/* ── UI refs ── */
-const s         = document.getElementById('status');
-const prog      = document.getElementById('p');
-const drop      = document.getElementById('drop');
-const f         = document.getElementById('f');
-const cancelBtn = document.getElementById('cancel');
-const xferInfo  = document.getElementById('xfer-info');
-const peerDot   = document.getElementById('peer-dot');
-const roomUrl   = document.getElementById('room-url');
-const copyBtn   = document.getElementById('copy-btn');
-const qrBtn     = document.getElementById('qr-btn');
-const qrPanel   = document.getElementById('qr-panel');
+  /* ── UI refs ── */
+  const s         = document.getElementById('status');
+  const prog      = document.getElementById('p');
+  const drop      = document.getElementById('drop');
+  const f         = document.getElementById('f');
+  const cancelBtn = document.getElementById('cancel');
+  const xferInfo  = document.getElementById('xfer-info');
+  const peerDot   = document.getElementById('peer-dot');
+  const roomUrl   = document.getElementById('room-url');
+  const copyBtn   = document.getElementById('copy-btn');
+  const qrBtn     = document.getElementById('qr-btn');
+  const qrPanel   = document.getElementById('qr-panel');
 
-/* ── populate visible room link immediately ── */
-roomUrl.textContent = location.href;
+  /* ── populate visible room link immediately ── */
+  roomUrl.textContent = location.href;
 
-/* ── dedicated Copy button ── */
-copyBtn.onclick = async e => {
-  e.stopPropagation();
-  try {
-    await navigator.clipboard.writeText(location.href);
-    copyBtn.textContent = '✓';
-    s.textContent = 'Link copied ✓';
-    setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1600);
-  } catch {}
-};
+  /* ── dedicated Copy button ── */
+  copyBtn.onclick = async e => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(location.href);
+      copyBtn.textContent = '✓';
+      s.textContent = 'Link copied ✓';
+      setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1600);
+    } catch {}
+  };
 
-/* ── QR toggle: lazy-generate once, then show/hide ── */
-let qrDone = false;
-qrBtn.onclick = e => {
-  e.stopPropagation();
-  qrPanel.classList.toggle('open');
-  if (!qrDone && qrPanel.classList.contains('open')) {
-    new window.QRCode(document.getElementById('qr-canvas'), {
-      text: location.href,
-      width: 148, height: 148,
-      colorDark: '#00ffff', colorLight: '#111111',
-    });
-    qrDone = true;
-  }
-};
+  /* ── QR toggle: lazy-generate once, then show/hide ── */
+  let qrDone = false;
+  qrBtn.onclick = e => {
+    e.stopPropagation();
+    qrPanel.classList.toggle('open');
+    if (!qrDone && qrPanel.classList.contains('open')) {
+      new window.QRCode(document.getElementById('qr-canvas'), {
+        text: location.href,
+        width: 148, height: 148,
+        colorDark: '#00ffff', colorLight: '#111111',
+      });
+      qrDone = true;
+    }
+  };
 
-/* ── peer dot helper ──
-   waiting   = grey  (no peer seen)
-   present   = amber (signaling received from peer)
-   connected = cyan  (data channel open)
-── */
-function setPeer(state) { peerDot.dataset.state = state; }
+  /* ── peer dot helper ── */
+  function setPeer(state) { peerDot.dataset.state = state; }
 
-/* ── transfer state ── */
-let cancelTransfer = false;
-let receivedChunks = [];
-let expectedChunks = 0;
-let fileMeta       = null;
-let rcvStartTime   = 0;
+  /* ── transfer state ── */
+  let cancelTransfer = false;
+  let receivedChunks = [];
+  let expectedChunks = 0;
+  let fileMeta       = null;
+  let rcvStartTime   = 0;
+  let currentUpload  = null; /* fetch controller for fallback */
 
-/* ── file queue + fallback guard ── */
-const MAX_FALLBACK_SIZE = 100 * 1024 * 1024; /* 100MB */
-const fileQueue = [];
-let sendingFile = false;
+  /* ── file queue + fallback guard ── */
+  const MAX_FALLBACK_SIZE = 100 * 1024 * 1024; /* 100MB */
+  const fileQueue = [];
+  let sendingFile = false;
 
-function enqueueFile(file) {
-  if (!file) return;
-  fileQueue.push(file);
-  processQueue();
-}
-
-async function processQueue() {
-  if (sendingFile || !fileQueue.length) return;
-  sendingFile = true;
-  try {
-    await sendFile(fileQueue.shift());
-  } finally {
-    sendingFile = false;
+  function enqueueFile(file) {
+    if (!file) return;
+    fileQueue.push(file);
     processQueue();
   }
-}
 
-
-/* ── UI helpers ── */
-function showCancel()      { cancelBtn.style.display = 'inline-block'; }
-function hideCancel()      { cancelBtn.style.display = 'none'; }
-function showXferInfo(txt) { xferInfo.style.display = 'block'; xferInfo.textContent = txt; }
-function hideXferInfo()    { xferInfo.style.display = 'none'; xferInfo.textContent = ''; }
-
-function fmtSpeed(bps) {
-  return bps >= 1048576
-    ? `${(bps / 1048576).toFixed(1)} MB/s`
-    : `${(bps / 1024).toFixed(0)} KB/s`;
-}
-function fmtETA(sec) {
-  if (!isFinite(sec) || sec < 0) return '—';
-  return sec >= 60 ? `${Math.ceil(sec / 60)}m left` : `${Math.ceil(sec)}s left`;
-}
-
-/* ── cancel handler ── */
-cancelBtn.onclick = () => {
-  cancelTransfer = true;
-  receivedChunks = []; expectedChunks = 0; fileMeta = null;
-  prog.value = 0; prog.style.display = 'none';
-  hideCancel(); hideXferInfo();
-  s.textContent = 'Transfer cancelled ✕';
-};
-
-/* ── WebSocket ── */
-let dc, connected = false, fallbackMode = false;
-const ws = new WebSocket(WS);
-const q  = [];
-
-const sendWS = d => {
-  const m = JSON.stringify(d);
-  if (ws.readyState === 1) ws.send(m);
-  else q.push(m);
-};
-
-ws.onopen = () => {
-  sendWS({ join: r });
-  s.textContent = 'Waiting for peer...';
-  setPeer('waiting');
-  while (q.length) ws.send(q.shift());
-  setInterval(() => { if (!connected) sendWS({ checkPeers: true }); }, 5000);
-};
-
-/* ── WebRTC ── */
-const pc = new RTCPeerConnection({
- iceServers: [
-   { urls: 'stun:stun.l.google.com:19302' },
-   {
-     urls: 'turn:stun.cloudflare.com:3478',
-     username: 'b4aae85474d13009d9e71f2a60fee4908f1da1f44ae3dec6d18d046238483e2360225ee6588',
-     credential: 'aba9b169546eb6dcc7bfb1cdf34544cf95b5161d602e365fa7c8342b2e9802fb'
-   }
- ]
-
-});
-
-
-
-let makingOffer = false;
-const polite    = Math.random() > 0.5;
-
-/* ── ICE restart on failure only ──────────────────────────────────
-   FIX 2: 'disconnected' is a TRANSIENT WebRTC state — the browser
-   will often recover on its own without any intervention. Setting
-   connected=false there was racing with dc.onopen and killing the
-   'Direct connection ⚡' message (and the P2P path itself).
-   We now only act on 'failed', which is the true terminal state.
-──────────────────────────────────────────────────────────────── */
-pc.oniceconnectionstatechange = () => {
-  if (pc.iceConnectionState === 'failed') {
-    s.textContent = 'Reconnecting... 🔄';
-    try { pc.restartIce(); } catch (err) { console.error('ICE restart:', err); }
-  }
-};
-
-pc.onconnectionstatechange = () => {
-  const st = pc.connectionState;
-  if (st === 'failed') {
-    /* genuine, non-recoverable failure — restart ICE */
-    connected = false;
-    setPeer('present');
-    s.textContent = 'Connection failed, reconnecting... 🔄';
-    try { pc.restartIce(); } catch {}
-  }
-  /* 'disconnected' is intentionally NOT handled here:
-     it is transient and self-heals; acting on it breaks
-     normal connection establishment and P2P transfers.  */
-};
-
-/* ── data channel setup ── */
-function setup() {
-  if (!dc) return;
-
-  dc.onopen  = () => {
-    connected = true; fallbackMode = false;
-    s.textContent = 'Direct connection ⚡';
-    setPeer('connected');
-  };
-  dc.onclose = () => { connected = false; setPeer('waiting'); };
-  dc.onerror = () => { connected = false; };
-
-  dc.onmessage = async e => {
+  async function processQueue() {
+    if (sendingFile || !fileQueue.length) return;
+    sendingFile = true;
     try {
-      if (typeof e.data === 'string') {
-        /* incoming file metadata → show receive-side progress bar */
-        const meta     = JSON.parse(e.data);
-        fileMeta       = meta;
-        receivedChunks = [];
-        expectedChunks = meta.chunks;
-        rcvStartTime   = Date.now();
-        cancelTransfer = false;
-        prog.value = 0; prog.style.display = 'block';
-        showCancel();
-        s.textContent = `Receiving ${shortName(meta.name)} via P2P ⚡`;
-      } else {
-        /* binary chunk */
-        if (cancelTransfer) return;
-        receivedChunks.push(e.data);
-        prog.value = (receivedChunks.length / expectedChunks) * 100;
+      await sendFile(fileQueue.shift());
+    } finally {
+      sendingFile = false;
+      processQueue();
+    }
+  }
 
-        /* receive-side speed + ETA */
-        const elapsed   = (Date.now() - rcvStartTime) / 1000 || 0.001;
-        const rcvBytes  = receivedChunks.length * 16 * 1024;
-        const speed     = rcvBytes / elapsed;
-        const remaining = ((expectedChunks - receivedChunks.length) * 16 * 1024) / speed;
-        showXferInfo(`↓ ${fmtSpeed(speed)}  —  ${fmtETA(remaining)}`);
+  /* ── UI helpers ── */
+  function showCancel()      { cancelBtn.style.display = 'inline-block'; }
+  function hideCancel()      { cancelBtn.style.display = 'none'; }
+  function showXferInfo(txt) { xferInfo.style.display = 'block'; xferInfo.textContent = txt; }
+  function hideXferInfo()    { xferInfo.style.display = 'none'; xferInfo.textContent = ''; }
 
-        if (receivedChunks.length === expectedChunks) {
-          const blob = new Blob(receivedChunks, { type: fileMeta.type });
-          const a    = document.createElement('a');
-          a.href = URL.createObjectURL(blob); a.download = fileMeta.name; a.click();
-          s.textContent = `Received ${shortName(fileMeta.name)} ✅`;
-          prog.value = 0; prog.style.display = 'none';
-          hideCancel(); hideXferInfo();
+  function fmtSpeed(bps) {
+    return bps >= 1048576
+      ? `${(bps / 1048576).toFixed(1)} MB/s`
+      : `${(bps / 1024).toFixed(0)} KB/s`;
+  }
+  function fmtETA(sec) {
+    if (!isFinite(sec) || sec < 0) return '—';
+    return sec >= 60 ? `${Math.ceil(sec / 60)}m left` : `${Math.ceil(sec)}s left`;
+  }
+
+  /* ── cancel handler ── */
+  cancelBtn.onclick = () => {
+    cancelTransfer = true;
+    if (currentUpload) { currentUpload.abort(); currentUpload = null; }
+    receivedChunks = []; expectedChunks = 0; fileMeta = null;
+    prog.value = 0; prog.style.display = 'none';
+    hideCancel(); hideXferInfo();
+    s.textContent = 'Transfer cancelled ✕';
+    /* notify peer */
+    if (dc && dc.readyState === 'open') dc.send(JSON.stringify({ cancel: true }));
+  };
+
+  /* ── WebSocket ── */
+  let dc, connected = false, fallbackMode = false;
+  const ws = new WebSocket(WS);
+  const q  = [];
+
+  const sendWS = d => {
+    const m = JSON.stringify(d);
+    if (ws.readyState === 1) ws.send(m);
+    else q.push(m);
+  };
+
+  ws.onopen = () => {
+    sendWS({ join: r });
+    s.textContent = 'Waiting for peer...';
+    setPeer('waiting');
+    while (q.length) ws.send(q.shift());
+    setInterval(() => { if (!connected) sendWS({ checkPeers: true }); }, 5000);
+  };
+
+  /* ── WebRTC ── */
+  const pc = new RTCPeerConnection({
+   iceServers: [
+     { urls: 'stun:stun.l.google.com:19302' },
+     {
+       urls: 'turn:stun.cloudflare.com:3478',
+       username: 'b4aae85474d13009d9e71f2a60fee4908f1da1f44ae3dec6d18d046238483e2360225ee6588',
+       credential: 'aba9b169546eb6dcc7bfb1cdf34544cf95b5161d602e365fa7c8342b2e9802fb'
+     }
+   ]
+  });
+
+  let makingOffer = false;
+  const polite    = Math.random() > 0.5;
+
+  pc.oniceconnectionstatechange = () => {
+    if (pc.iceConnectionState === 'failed') {
+      s.textContent = 'Reconnecting... 🔄';
+      try { pc.restartIce(); } catch (err) { console.error('ICE restart:', err); }
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    const st = pc.connectionState;
+    if (st === 'failed') {
+      connected = false;
+      setPeer('present');
+      s.textContent = 'Connection failed, reconnecting... 🔄';
+      try { pc.restartIce(); } catch {}
+    }
+  };
+
+  /* ── data channel setup ── */
+  function setup() {
+    if (!dc) return;
+
+    dc.onopen  = () => {
+      connected = true; fallbackMode = false;
+      s.textContent = 'Direct connection ⚡';
+      setPeer('connected');
+    };
+    dc.onclose = () => { connected = false; setPeer('waiting'); };
+    dc.onerror = () => { connected = false; };
+
+    dc.onmessage = async e => {
+      try {
+        if (typeof e.data === 'string') {
+          const d = JSON.parse(e.data);
+
+          if (d.cancel) {
+            cancelTransfer = true;
+            if (currentUpload) { currentUpload.abort(); currentUpload = null; }
+            receivedChunks = []; expectedChunks = 0; fileMeta = null;
+            prog.value = 0; prog.style.display = 'none';
+            hideCancel(); hideXferInfo();
+            s.textContent = 'Peer cancelled transfer ✕';
+            return;
+          }
+
+          const meta = d;
+          fileMeta       = meta;
+          receivedChunks = [];
+          expectedChunks = meta.chunks;
+          rcvStartTime   = Date.now();
+          cancelTransfer = false;
+          prog.value = 0; prog.style.display = 'block';
+          showCancel();
+          s.textContent = `Receiving ${shortName(meta.name)} via P2P ⚡`;
+        } else {
+          if (cancelTransfer) return;
+          receivedChunks.push(e.data);
+          prog.value = (receivedChunks.length / expectedChunks) * 100;
+
+          const elapsed   = (Date.now() - rcvStartTime) / 1000 || 0.001;
+          const rcvBytes  = receivedChunks.length * 16 * 1024;
+          const speed     = rcvBytes / elapsed;
+          const remaining = ((expectedChunks - receivedChunks.length) * 16 * 1024) / speed;
+          showXferInfo(`↓ ${fmtSpeed(speed)}  —  ${fmtETA(remaining)}`);
+
+          if (receivedChunks.length === expectedChunks) {
+            const blob = new Blob(receivedChunks, { type: fileMeta.type });
+            const a    = document.createElement('a');
+            a.href = URL.createObjectURL(blob); a.download = fileMeta.name; a.click();
+            s.textContent = `Received ${shortName(fileMeta.name)} ✅`;
+            prog.value = 0; prog.style.display = 'none';
+            hideCancel(); hideXferInfo();
+          }
         }
-      }
-    } catch (err) { console.error(err); }
-  };
-}
+      } catch (err) { console.error(err); }
+    };
+  }
 
-dc = pc.createDataChannel('f');
-setup();
+  dc = pc.createDataChannel('f');
+  setup();
 
-pc.onnegotiationneeded = async () => {
-  try {
-    makingOffer = true;
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    sendWS({ signal: pc.localDescription });
-  } finally { makingOffer = false; }
-};
-
-pc.ondatachannel = e => { dc = e.channel; setup(); };
-
-pc.onicecandidate = e => {
-  if (!e.candidate) return;
-  sendWS({ signal: e.candidate });
-};
-
-/* ── signaling ── */
-ws.onmessage = async e => {
-  const d = JSON.parse(e.data);
-
-  /* late peer discovery */
-  if (d.checkPeers && !connected) {
+  pc.onnegotiationneeded = async () => {
     try {
+      makingOffer = true;
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       sendWS({ signal: pc.localDescription });
-    } catch (err) { console.error(err); }
-  }
+    } finally { makingOffer = false; }
+  };
 
-  if (d.signal) {
-    /* first signal from the other side → peer is in the room */
-    if (peerDot.dataset.state === 'waiting') {
+  pc.ondatachannel = e => { dc = e.channel; setup(); };
+  pc.onicecandidate = e => { if (!e.candidate) return; sendWS({ signal: e.candidate }); };
+
+  /* ── signaling ── */
+  ws.onmessage = async e => {
+    const d = JSON.parse(e.data);
+
+    if (d.checkPeers && !connected) {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendWS({ signal: pc.localDescription });
+      } catch (err) { console.error(err); }
+    }
+
+    if (d.signal) {
+      if (peerDot.dataset.state === 'waiting') {
+        setPeer('present');
+        s.textContent = 'Peer found, connecting...';
+      }
+
+      const offerCollision =
+        d.signal.type === 'offer' &&
+        (makingOffer || pc.signalingState !== 'stable');
+      const ignoreOffer = !polite && offerCollision;
+      if (ignoreOffer) return;
+
+      if (d.signal.type === 'offer') {
+        await pc.setRemoteDescription(d.signal);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        sendWS({ signal: pc.localDescription });
+      } else if (d.signal.type === 'answer') {
+        if (pc.signalingState !== 'have-local-offer') return;
+        await pc.setRemoteDescription(d.signal);
+      } else if (d.signal.candidate) {
+        try { await pc.addIceCandidate(d.signal); } catch {}
+      }
+    }
+
+    if (d.peerJoined && peerDot.dataset.state === 'waiting') {
       setPeer('present');
-      s.textContent = 'Peer found, connecting...';
+      s.textContent = 'Peer joined the room 👋';
     }
 
-    const offerCollision =
-      d.signal.type === 'offer' &&
-      (makingOffer || pc.signalingState !== 'stable');
-    const ignoreOffer = !polite && offerCollision;
-    if (ignoreOffer) return;
-
-    if (d.signal.type === 'offer') {
-      await pc.setRemoteDescription(d.signal);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      sendWS({ signal: pc.localDescription });
-    } else if (d.signal.type === 'answer') {
-      if (pc.signalingState !== 'have-local-offer') return;
-      await pc.setRemoteDescription(d.signal);
-    } else if (d.signal.candidate) {
-      try { await pc.addIceCandidate(d.signal); } catch {}
+    if (d.file) {
+      s.textContent = 'Receiving via fallback ☁️';
+      const a = document.createElement('a');
+      a.href = HTTP + '/f/' + d.file; a.download = 'file'; a.click();
     }
-  }
+  };
 
-  /* optional explicit peer-joined notification from server */
-  if (d.peerJoined && peerDot.dataset.state === 'waiting') {
-    setPeer('present');
-    s.textContent = 'Peer joined the room 👋';
-  }
+  /* ── drag / drop / click ── */
+  drop.onclick = async () => { try { await navigator.clipboard.writeText(location.href); s.textContent = 'Link copied ✓'; } catch {} };
+  drop.ondragover = e => e.preventDefault();
+  drop.ondrop = e => { e.preventDefault(); for (const file of e.dataTransfer.files) enqueueFile(file); };
+  f.onchange = () => { for (const file of f.files) enqueueFile(file); };
 
-  /* fallback receive */
-  if (d.file) {
-    s.textContent = 'Receiving via fallback ☁️';
-    const a = document.createElement('a');
-    a.href = HTTP + '/f/' + d.file; a.download = 'file'; a.click();
-  }
-};
+  /* ── paste support ── */
+  document.addEventListener('paste', e => {
+    const items = e.clipboardData?.items || [];
+    for (const item of items) if (item.kind === 'file') enqueueFile(item.getAsFile());
+  });
 
-/* ── drag / drop / click (original behaviour intact) ── */
-drop.onclick = async () => {
-  try { await navigator.clipboard.writeText(location.href); s.textContent = 'Link copied ✓'; } catch {}
-  f.click();
-};
-drop.ondragover = e => e.preventDefault();
-drop.ondrop = e => {
-  e.preventDefault();
-  for (const file of e.dataTransfer.files) enqueueFile(file);
-};
+  /* ── fallback timer ── */
+  setTimeout(() => {
+    if (!connected) { fallbackMode = true; s.textContent = 'Using secure fallback ☁️'; }
+  }, 30000);
 
-f.onchange = () => {
-  for (const file of f.files) enqueueFile(file);
-};
+  /* ── chunked P2P send ── */
+  async function sendFile(file) {
+    if (!file) return;
 
+    cancelTransfer = false;
+    const chunkSize = 16 * 1024;
+    const buffer    = await file.arrayBuffer();
+    const chunks    = Math.ceil(buffer.byteLength / chunkSize);
 
-/* ── paste support ── */
-document.addEventListener('paste', e => {
-  const items = e.clipboardData?.items || [];
-  for (const item of items) {
-    if (item.kind === 'file') {
-      const file = item.getAsFile();
-      if (file) enqueueFile(file);
-    }
-  }
-});
+    s.textContent = 'Preparing...';
+    prog.value = 0; prog.style.display = 'block';
+    showCancel(); hideXferInfo();
 
+    if (!connected && !fallbackMode) await new Promise(r => setTimeout(r, 2000));
+    if (cancelTransfer) { prog.style.display = 'none'; hideCancel(); return; }
 
-/* ── fallback timer ── */
-setTimeout(() => {
-  if (!connected) { fallbackMode = true; s.textContent = 'Using secure fallback ☁️'; }
-}, 30000);
+    s.textContent = 'Sending...';
+    playSound();
 
-/* ── chunked P2P send ── */
-async function sendFile(file) {
-  if (!file) return;
+    if (connected && !fallbackMode) {
+      dc.send(JSON.stringify({ name: file.name, type: file.type, chunks }));
+      let offset    = 0;
+      let startTime = Date.now();
+      let lastUI    = startTime;
 
-  cancelTransfer = false;
-  const chunkSize = 16 * 1024;
-  const buffer    = await file.arrayBuffer();
-  const chunks    = Math.ceil(buffer.byteLength / chunkSize);
+      while (offset < buffer.byteLength) {
+        if (cancelTransfer) { prog.value = 0; prog.style.display = 'none'; hideCancel(); hideXferInfo(); s.textContent = 'Transfer cancelled ✕'; return; }
+        while (dc.bufferedAmount > 16 * chunkSize) await new Promise(r => setTimeout(r, 50));
+        dc.send(buffer.slice(offset, offset + chunkSize));
+        offset += chunkSize;
+        prog.value = Math.min((offset / buffer.byteLength) * 100, 100);
 
-  s.textContent = 'Preparing...';
-  prog.value = 0; prog.style.display = 'block';
-  showCancel(); hideXferInfo();
-
-  if (!connected && !fallbackMode) {
-    s.textContent = 'Connecting...';
-    await new Promise(resolve => setTimeout(resolve, 2000));
-  }
-
-  if (cancelTransfer) { prog.style.display = 'none'; hideCancel(); return; }
-
-  s.textContent = 'Sending...';
-  playSound();
-
-  if (connected && !fallbackMode) {
-    dc.send(JSON.stringify({ name: file.name, type: file.type, chunks }));
-
-    let offset    = 0;
-    let startTime = Date.now();
-    let lastUI    = startTime;
-
-    while (offset < buffer.byteLength) {
-      if (cancelTransfer) {
-        prog.value = 0; prog.style.display = 'none';
-        hideCancel(); hideXferInfo();
-        s.textContent = 'Transfer cancelled ✕';
-        return;
+        const now = Date.now();
+        if (now - lastUI > 300) {
+          const elapsed   = (now - startTime) / 1000 || 0.001;
+          const speed     = offset / elapsed;
+          const bytesLeft = buffer.byteLength - offset;
+          showXferInfo(`↑ ${fmtSpeed(speed)}  —  ${fmtETA(bytesLeft / speed)}`);
+          lastUI = now;
+        }
       }
-      while (dc.bufferedAmount > 16 * chunkSize)
-        await new Promise(r => setTimeout(r, 50));
 
-      dc.send(buffer.slice(offset, offset + chunkSize));
-      offset += chunkSize;
-      prog.value = Math.min((offset / buffer.byteLength) * 100, 100);
-
-      const now = Date.now();
-      if (now - lastUI > 300) {
-        const elapsed   = (now - startTime) / 1000 || 0.001;
-        const speed     = offset / elapsed;
-        const bytesLeft = buffer.byteLength - offset;
-        showXferInfo(`↑ ${fmtSpeed(speed)}  —  ${fmtETA(bytesLeft / speed)}`);
-        lastUI = now;
-      }
-    }
-
-    s.textContent = `Sent ${shortName(file.name)} via P2P ⚡`;
-    prog.value = 0; prog.style.display = 'none';
-    hideCancel(); hideXferInfo();
-
-    } else {
-    if (file.size > MAX_FALLBACK_SIZE) {
-      s.textContent = 'File too large for fallback ⚠️';
+      s.textContent = `Sent ${shortName(file.name)} via P2P ⚡`;
       prog.value = 0; prog.style.display = 'none';
       hideCancel(); hideXferInfo();
-      return;
-    }
 
-    s.textContent = 'Uploading... ☁️';
-    try {
-      const res = await fetch(HTTP, { method: 'POST', body: file });
-      const id  = await res.text();
-      sendWS({ file: id });
-      s.textContent = 'Sent via fallback ☁️';
-    } catch {
-      s.textContent = 'Upload failed ❌';
+    } else {
+      if (file.size > MAX_FALLBACK_SIZE) { s.textContent = 'File too large for fallback ⚠️'; prog.value = 0; prog.style.display = 'none'; hideCancel(); hideXferInfo(); return; }
+
+      s.textContent = 'Uploading... ☁️';
+      currentUpload = new AbortController();
+      try {
+        const res = await fetch(HTTP, { method:'POST', body:file, signal:currentUpload.signal });
+        const id  = await res.text();
+        sendWS({ file: id });
+        s.textContent = 'Sent via fallback ☁️';
+      } catch {
+        s.textContent = cancelTransfer ? 'Upload cancelled ✕' : 'Upload failed ❌';
+      } finally { currentUpload = null; }
+      prog.value = 0; prog.style.display = 'none';
+      hideCancel(); hideXferInfo();
     }
-    prog.value = 0; prog.style.display = 'none';
-    hideCancel(); hideXferInfo();
   }
 
-}
+  function shortName(name, max = 20) {
+    if (name.length <= max) return name;
+    const ext = name.includes('.') ? '.' + name.split('.').pop() : '';
+    return name.slice(0, max - ext.length - 3) + '...' + ext;
+  }
+  </script>
 
-function shortName(name, max = 20) {
-  if (name.length <= max) return name;
-  const ext = name.includes('.') ? '.' + name.split('.').pop() : '';
-  return name.slice(0, max - ext.length - 3) + '...' + ext;
-}
-</script>
 
 
 <script>
