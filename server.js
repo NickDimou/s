@@ -5,12 +5,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import url from 'url';
 
-/* ─────────────────────────────────────────────
-   PORT CONFIG
-───────────────────────────────────────────── */
-let port = parseInt(process.env.PORT, 10);
-if (isNaN(port) || port <= 0 || port > 65535) port = 3000;
-const httpPort = port + 1 > 65535 ? 3001 : port + 1;
+const port = process.env.PORT || 3000;
 
 /* ─────────────────────────────────────────────
    CONFIG
@@ -137,6 +132,6 @@ const httpServer = http.createServer((req, res) => {
   res.end();
 });
 
-httpServer.listen(httpPort, () => {
-  console.log('TURN credential server running on port', httpPort);
+httpServer.listen(port + 1, () => {
+  console.log('TURN credential server running on port', port + 1);
 });
