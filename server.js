@@ -4,6 +4,7 @@ import http from 'http';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import crypto from 'crypto';
 
 const port = process.env.PORT || 3000;
 
@@ -16,27 +17,36 @@ const HEARTBEAT_INTERVAL = 30000; /* 30 sec */
 const MAX_FILE_SIZE = 100 * 1024 * 1024; /* 100MB */
 const UPLOAD_TIMEOUT = 30000; /* 30 sec */
 
+const ID_RE = /^[a-z0-9_-]{1,64}$/i;
+const FILE_ID_RE = /^[a-f0-9]{32}$/i;
+const SAFE_UPLOAD_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'stelno-'));
+
 const rooms = new Map(); /* roomId => { peers: Set(ws), lastActive: timestamp } */
 const files = new Map(); /* fileId => { path, dir, createdAt, size } */
-
-const uploadRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stelno-'));
-try { fs.mkdirSync(uploadRoot, { recursive: true }); } catch {}
 
 /* ─────────────────────────────────────────────
    HELPERS
 ───────────────────────────────────────────── */
+function makeId() {
+  return crypto.randomBytes(16).toString('hex');
+}
+
 function isShortString(v, max = 64) {
   return typeof v === 'string' && v.length > 0 && v.length <= max;
 }
 
-function isValidSignal(v) {
-  if (!v || typeof v !== 'object') return false;
-  if (v.type === 'offer' || v.type === 'answer') return true;
-  return typeof v.candidate === 'string' && v.candidate.length > 0;
+function isValidRoomId(v) {
+  return isShortString(v, 64) && ID_RE.test(v);
 }
 
-function isKnownFileId(v) {
-  return isShortString(v, 128) && files.has(v);
+function isValidFileId(v) {
+  return isShortString(v, 64) && FILE_ID_RE.test(v) && files.has(v);
+}
+
+function isValidSignal(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  if (v.type === 'offer' || v.type === 'answer') return true;
+  return typeof v.candidate === 'string' && v.candidate.length > 0;
 }
 
 function validateMessage(msg) {
@@ -49,7 +59,7 @@ function validateMessage(msg) {
   if (!keys.every(k => allowed.includes(k))) return null;
 
   if (Object.prototype.hasOwnProperty.call(msg, 'join')) {
-    return isShortString(msg.join, 64) ? 'join' : null;
+    return isValidRoomId(msg.join) ? 'join' : null;
   }
 
   if (Object.prototype.hasOwnProperty.call(msg, 'signal')) {
@@ -57,7 +67,7 @@ function validateMessage(msg) {
   }
 
   if (Object.prototype.hasOwnProperty.call(msg, 'file')) {
-    return isKnownFileId(msg.file) ? 'file' : null;
+    return isValidFileId(msg.file) ? 'file' : null;
   }
 
   if (msg.checkPeers === true) {
@@ -67,11 +77,23 @@ function validateMessage(msg) {
   return null;
 }
 
+function safeUnlink(p) {
+  try {
+    if (p && fs.existsSync(p)) fs.unlinkSync(p);
+  } catch {}
+}
+
+function safeRm(d) {
+  try {
+    if (d && fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true });
+  } catch {}
+}
+
 function cleanupUpload(id) {
   const f = files.get(id);
   if (!f) return;
-  try { fs.unlinkSync(f.path); } catch {}
-  try { fs.rmSync(f.dir, { recursive: true, force: true }); } catch {}
+  safeUnlink(f.path);
+  safeRm(f.dir);
   files.delete(id);
 }
 
@@ -79,9 +101,9 @@ function cleanupRooms() {
   const now = Date.now();
 
   for (const [id, room] of rooms) {
-    for (const peer of room.peers) {
+    for (const peer of [...room.peers]) {
       if (peer.isAlive === false) {
-        peer.terminate();
+        try { peer.terminate(); } catch {}
         room.peers.delete(peer);
       } else {
         peer.isAlive = false;
@@ -96,16 +118,15 @@ function cleanupRooms() {
   }
 }
 
-setInterval(cleanupRooms, HEARTBEAT_INTERVAL);
-
-setInterval(() => {
+function cleanupFiles() {
   const now = Date.now();
   for (const [id, f] of files) {
-    if (now - f.createdAt > ROOM_TTL) {
-      cleanupUpload(id);
-    }
+    if (now - f.createdAt > ROOM_TTL) cleanupUpload(id);
   }
-}, HEARTBEAT_INTERVAL);
+}
+
+setInterval(cleanupRooms, HEARTBEAT_INTERVAL).unref();
+setInterval(cleanupFiles, HEARTBEAT_INTERVAL).unref();
 
 /* ─────────────────────────────────────────────
    HTTP + WS SERVER
@@ -123,14 +144,20 @@ const server = http.createServer((req, res) => {
 
   /* ── Fallback upload ── */
   if (req.method === 'POST') {
-    const id = Math.random().toString(36).slice(2);
-    const dir = fs.mkdtempSync(path.join(uploadRoot, `${id}-`));
+    const id = makeId();
+    const dir = fs.mkdtempSync(path.join(SAFE_UPLOAD_ROOT, `${id}-`));
     const filePath = path.join(dir, 'upload.bin');
-    const stream = fs.createWriteStream(filePath);
+    const stream = fs.createWriteStream(filePath, { flags: 'w' });
 
     let size = 0;
     let done = false;
-    let timedOut = false;
+
+    const cleanup = () => {
+      try { stream.destroy(); } catch {}
+      try { req.destroy(); } catch {}
+      safeUnlink(filePath);
+      safeRm(dir);
+    };
 
     const finishOk = () => {
       if (done) return;
@@ -142,25 +169,31 @@ const server = http.createServer((req, res) => {
         createdAt: Date.now(),
         size
       });
-      res.end(id);
+      try {
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end(id);
+      } catch {}
     };
 
     const fail = (code = 500, msg = 'Upload failed') => {
       if (done) return;
       done = true;
       clearTimeout(timer);
-      try { stream.destroy(); } catch {}
-      try { req.destroy(); } catch {}
-      try { res.writeHead(code); } catch {}
-      try { res.end(msg); } catch {}
-      try { fs.unlinkSync(filePath); } catch {}
-      try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+      cleanup();
+      try {
+        if (!res.headersSent) res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end(msg);
+      } catch {}
     };
 
     const timer = setTimeout(() => {
-      timedOut = true;
       fail(408, 'Upload timeout');
     }, UPLOAD_TIMEOUT);
+    timer.unref();
+
+    req.setTimeout(UPLOAD_TIMEOUT, () => {
+      fail(408, 'Upload timeout');
+    });
 
     req.on('data', chunk => {
       if (done) return;
@@ -168,7 +201,6 @@ const server = http.createServer((req, res) => {
       size += chunk.length;
       if (size > MAX_FILE_SIZE) {
         fail(413, 'File too large');
-        try { req.destroy(new Error('File too large')); } catch {}
         return;
       }
 
@@ -178,11 +210,12 @@ const server = http.createServer((req, res) => {
     });
 
     stream.on('drain', () => {
+      if (done) return;
       try { req.resume(); } catch {}
     });
 
     req.on('end', () => {
-      if (done || timedOut) return;
+      if (done) return;
       stream.end(() => finishOk());
     });
 
@@ -191,9 +224,7 @@ const server = http.createServer((req, res) => {
     });
 
     req.on('close', () => {
-      if (!done && size > 0) {
-        fail(499, 'Client closed');
-      }
+      if (!done && size > 0) fail(499, 'Client closed');
     });
 
     req.on('error', () => {
@@ -212,7 +243,7 @@ const server = http.createServer((req, res) => {
     const id = req.url.split('/f/')[1];
     const f = files.get(id);
 
-    if (!f) {
+    if (!f || !fs.existsSync(f.path) || !f.path.startsWith(SAFE_UPLOAD_ROOT)) {
       res.writeHead(404);
       res.end();
       return;
@@ -223,16 +254,21 @@ const server = http.createServer((req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
 
-    fs.createReadStream(f.path)
-      .on('error', () => {
-        try { res.end(); } catch {}
-      })
-      .pipe(res);
-
+    const s = fs.createReadStream(f.path);
+    s.on('error', () => {
+      try { res.destroy(); } catch {}
+    });
+    s.pipe(res);
     return;
   }
 
   res.end('stelno alive');
+});
+
+server.on('clientError', (err, socket) => {
+  try {
+    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+  } catch {}
 });
 
 const wss = new WebSocketServer({ server });
