@@ -328,6 +328,10 @@ progress::-moz-progress-bar{
   cursor: pointer;
   box-shadow: 0 0 8px rgba(0, 255, 255, 0.2);
   text-align: center;
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
 }
 
 #info-pill:hover{
@@ -338,8 +342,8 @@ progress::-moz-progress-bar{
 /* info panel */
 #info-panel{
   position: absolute;
-  bottom: 30px;
-  right: 0;
+  bottom: -16px;
+  right: -10px;
   background: var(--panel-bg-dark);
   color: var(--text-color);
   padding: 10px 14px;
@@ -411,7 +415,12 @@ progress::-moz-progress-bar{
     transform:scale(1.02);
   }
 
-  #room-url{max-width:280px;}}
+  #room-url{max-width:280px;}
+  #info-pill{
+    right: 20px;
+    bottom: 20px;
+  }
+}
 
 
   @media(max-width:1023px) and (orientation:landscape){
@@ -476,6 +485,11 @@ progress::-moz-progress-bar{
   #cancel{padding:4px 16px;font-size:.65rem;}
   #qr-panel{box-shadow:-10px 0 30px rgba(0,0,0,0.4);}
   #room-bar{margin-top:8px;}
+
+  #info-pill{
+    right: 0;
+    bottom: 0;
+  }
 
   }
 
