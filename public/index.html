@@ -308,6 +308,60 @@ progress::-moz-progress-bar{
 
 #translate{display:none !important;}
 
+/* container positioning */
+#info-container{
+  margin-top:12px;
+  text-align:right;
+  position:relative;
+}
+
+/* info pill */
+#info-pill{
+  display:inline-block;
+  background:rgba(0,255,255,0.15);
+  color:#0ff;
+  font-weight:bold;
+  font-size:1rem;
+  width:24px; height:24px;
+  line-height:24px;
+  border-radius:50%;
+  cursor:pointer;
+  box-shadow:0 0 8px rgba(0,255,255,0.2);
+  transition:transform .2s, box-shadow .2s;
+}
+
+#info-pill:hover{
+  transform:scale(1.2);
+  box-shadow:0 0 14px rgba(0,255,255,0.3);
+}
+
+/* info panel */
+#info-panel{
+  position: absolute;
+  bottom: 30px;
+  right: 0;
+  background: var(--panel-bg-dark);
+  color: var(--text-color);
+  padding: 10px 14px;
+  border-radius: 36px;
+  font-size: 1rem;
+  line-height: 1.2rem;
+  text-align: right;
+  box-shadow: var(--accent-glow-mid);
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s, transform .25s;
+  max-width: 312px;
+  text-align: center;
+}
+
+#info-panel.show{
+  opacity:1; pointer-events:auto;
+  transform:translateY(-4px);
+}
+
+
 @keyframes pulse{
   0%{width:20%;}
   50%{width:80%;}
@@ -468,6 +522,22 @@ progress::-moz-progress-bar{
   <div id="xfer-info"></div>
   <button id="cancel" aria-label="Cancel file transfer">✕ Cancel</button>
 
+  <!-- info toggle inside box -->
+  <div id="info-container">
+    <span id="info-pill" title="App info" aria-label="App info">ℹ</span>
+    <div id="info-panel">
+      <p><strong>Stelno</strong> – Send everything fast and easy ⚡</p>
+      <p>Created by Pavlos Mavromatis</p>
+      <p>© 2026 Stelno. All rights reserved.</p>
+      <p>Version 33</p>
+    </div>
+  </div>
+
+
+</div>
+
+
+
 
 <script type="module">
   /* ── config ── */
@@ -494,9 +564,17 @@ progress::-moz-progress-bar{
   /* ── populate visible room link immediately ── */
   roomUrl.textContent = location.href;
 
+  function vibrateMobile(ms = 20) {
+    if (navigator.vibrate && /Mobi|Android/i.test(navigator.userAgent)) {
+      navigator.vibrate(ms);
+    }
+  }
+
   /* ── dedicated Copy button ── */
+  /* copy button */
   copyBtn.onclick = async e => {
     e.stopPropagation();
+    vibrateMobile(20); /* vibration only on mobile */
     try {
       await navigator.clipboard.writeText(location.href);
       copyBtn.textContent = '✓';
@@ -505,10 +583,10 @@ progress::-moz-progress-bar{
     } catch {}
   };
 
-  /* ── QR toggle: lazy-generate once, then show/hide ── */
-  let qrDone = false;
+  /* QR button */
   qrBtn.onclick = e => {
     e.stopPropagation();
+    vibrateMobile(20); /* vibration only on mobile */
     qrPanel.classList.toggle('open');
     if (!qrDone && qrPanel.classList.contains('open')) {
       new window.QRCode(document.getElementById('qr-canvas'), {
@@ -970,6 +1048,24 @@ progress::-moz-progress-bar{
   onload="initTranslate()"
 ></script>
 
-</div>
+<script>
+  const pill  = document.getElementById('info-pill');
+  const panel = document.getElementById('info-panel');
+
+  pill.onclick = e => {
+    e.stopPropagation(); /* avoid accidental propagation */
+    panel.classList.toggle('show');
+  };
+
+  /* hide info panel if clicked outside */
+  document.addEventListener('click', e => {
+    if (!panel.contains(e.target) && !pill.contains(e.target)) {
+      panel.classList.remove('show');
+    }
+  });
+
+</script>
+
+
 </body>
 </html>
