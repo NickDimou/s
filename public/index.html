@@ -585,6 +585,7 @@ progress::-moz-progress-bar{
 
   /* QR button */
   qrBtn.onclick = e => {
+    let qrDone = false;
     e.stopPropagation();
     vibrateMobile(20); /* vibration only on mobile */
     qrPanel.classList.toggle('open');
