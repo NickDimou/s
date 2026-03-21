@@ -8,231 +8,86 @@ const port = process.env.PORT || 3000;
 /* ─────────────────────────────────────────────
    CONFIG
 ───────────────────────────────────────────── */
-
-/* rooms */
 const ROOM_TTL = 1000 * 60 * 10; /* 10 min */
-const MAX_PEERS_PER_ROOM = 3;
-const CLEANUP_INTERVAL = 1000 * 60;
-
-/* files */
-const FILE_TTL = 1000 * 60 * 10; /* 10 min */
-const MAX_FILE_SIZE = 100 * 1024 * 1024; /* 100MB */
-
-/* ───────────────────────────────────────────── */
-
-const rooms = {};
-const files = {}; /* { id: { path, createdAt, size } } */
+const MAX_PEERS_PER_ROOM = 3;     /* 3 */
+const rooms = new Map();           /* roomId => { peers: Set(ws), lastActive: timestamp } */
 
 /* ─────────────────────────────────────────────
-   HTTP SERVER
+   SERVER
 ───────────────────────────────────────────── */
+const wss = new WebSocketServer({ port });
 
-const server = http.createServer((req, res) => {
+function validateMessage(msg) {
+  if (typeof msg !== 'object' || msg === null) return false;
+  const keys = Object.keys(msg);
+  return keys.every(k =>
+    ['join', 'signal', 'file', 'checkPeers'].includes(k)
+  );
+}
 
-  /* CORS */
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    return res.end();
+function cleanupRooms() {
+  const now = Date.now();
+  for (const [id, room] of rooms) {
+    if (now - room.lastActive > ROOM_TTL || room.peers.size === 0) {
+      rooms.delete(id);
+      console.log('Deleted stale room:', id);
+    }
   }
+}
 
-  /* ── UPLOAD (fallback) ── */
-  if (req.method === 'POST') {
-
-    let size = 0;
-    const id = Math.random().toString(36).slice(2);
-    const path = 'tmp_' + id;
-
-    const stream = fs.createWriteStream(path);
-
-    req.on('data', chunk => {
-      size += chunk.length;
-
-      /* enforce max size */
-      if (size > MAX_FILE_SIZE) {
-        stream.destroy();
-        fs.unlink(path, () => {});
-        res.writeHead(413);
-        return res.end('File too large');
-      }
-    });
-
-    req.pipe(stream);
-
-    stream.on('finish', () => {
-      files[id] = {
-        path,
-        createdAt: Date.now(),
-        size
-      };
-      res.end(id);
-    });
-
-    stream.on('error', () => {
-      fs.unlink(path, () => {});
-      res.writeHead(500);
-      res.end('Upload failed');
-    });
-  }
-
-  /* ── DOWNLOAD (fallback) ── */
-  else if (req.url.startsWith('/f/')) {
-    const id = req.url.split('/f/')[1];
-    const file = files[id];
-
-    if (!file) return res.end();
-
-    fs.createReadStream(file.path)
-      .on('error', () => res.end())
-      .pipe(res);
-  }
-
-  else res.end('stelno alive');
-});
-
-/* ─────────────────────────────────────────────
-   WEBSOCKET
-───────────────────────────────────────────── */
-
-const wss = new WebSocketServer({ server });
+setInterval(cleanupRooms, 60 * 1000); /* every minute */
 
 wss.on('connection', ws => {
+  let roomId = null;
 
-  let room;
+  ws.on('message', data => {
+    let msg;
+    try { msg = JSON.parse(data); } catch { return; }
+    if (!validateMessage(msg)) return; /* basic validation */
 
-  ws.on('message', msg => {
-    const d = JSON.parse(msg);
+    if (msg.join) {
+      roomId = msg.join;
+      if (!rooms.has(roomId)) rooms.set(roomId, { peers: new Set(), lastActive: Date.now() });
+      const room = rooms.get(roomId);
 
-    /* ── JOIN ── */
-    if (d.join) {
-      room = d.join;
-
-      if (!rooms[room]) {
-        rooms[room] = {
-          peers: [],
-          lastActive: Date.now()
-        };
-      }
-
-      const r = rooms[room];
-
-      /* enforce 3-peer P2P */
-      if (r.peers.length >= MAX_PEERS_PER_ROOM) {
-        if (ws.readyState === 1)
-          ws.send(JSON.stringify({ error: 'room_full' }));
+      if (room.peers.size >= MAX_PEERS_PER_ROOM) {
+        ws.send(JSON.stringify({ error: 'Room full' }));
+        ws.close();
         return;
       }
 
-      if (!r.peers.includes(ws)) r.peers.push(ws);
+      room.peers.add(ws);
+      room.lastActive = Date.now();
 
-      r.lastActive = Date.now();
+      /* notify others */
+      room.peers.forEach(peer => {
+        if (peer !== ws && peer.readyState === 1) peer.send(JSON.stringify({ peerJoined: true }));
+      });
+    }
 
-      if (r.peers.length > 1) {
-        r.peers.forEach(c => {
-          if (c !== ws && c.readyState === 1)
-            c.send(JSON.stringify({ peerJoined: true }));
+    if (roomId && rooms.has(roomId)) {
+      const room = rooms.get(roomId);
+      room.lastActive = Date.now();
+
+      /* relay signals & files */
+      if (msg.signal || msg.file || msg.checkPeers) {
+        room.peers.forEach(peer => {
+          if (peer !== ws && peer.readyState === 1) {
+            peer.send(JSON.stringify(msg));
+          }
         });
-
-        if (ws.readyState === 1)
-          ws.send(JSON.stringify({ roomReady: true }));
       }
-    }
-
-    /* ── SIGNAL ── */
-    if (d.signal && room) {
-      const r = rooms[room];
-      if (!r) return;
-
-      r.lastActive = Date.now();
-
-      r.peers.forEach(c => {
-        if (c !== ws && c.readyState === 1)
-          c.send(JSON.stringify({ signal: d.signal }));
-      });
-    }
-
-    /* ── FALLBACK FILE NOTIFY ── */
-    if (d.file && room) {
-      const r = rooms[room];
-      if (!r) return;
-
-      r.lastActive = Date.now();
-
-      r.peers.forEach(c => {
-        if (c !== ws && c.readyState === 1)
-          c.send(JSON.stringify({ file: d.file }));
-      });
-    }
-
-    /* ── LATE PEER DISCOVERY ── */
-    if (d.checkPeers && room) {
-      const r = rooms[room];
-      if (!r) return;
-
-      r.lastActive = Date.now();
-
-      r.peers.forEach(c => {
-        if (c !== ws && c.readyState === 1)
-          c.send(JSON.stringify({ checkPeers: true }));
-      });
     }
   });
 
-  /* ── DISCONNECT CLEANUP ── */
   ws.on('close', () => {
-    if (room && rooms[room]) {
-      const r = rooms[room];
-
-      r.peers = r.peers.filter(c => c !== ws);
-
-      if (!r.peers.length) {
-        delete rooms[room];
-      } else {
-        r.lastActive = Date.now();
-      }
-    }
+    if (!roomId) return;
+    const room = rooms.get(roomId);
+    if (!room) return;
+    room.peers.delete(ws);
+    room.lastActive = Date.now();
+    if (room.peers.size === 0) rooms.delete(roomId);
   });
 });
 
-/* ─────────────────────────────────────────────
-   CLEANUP LOOPS
-───────────────────────────────────────────── */
-
-/* room cleanup */
-setInterval(() => {
-  const now = Date.now();
-
-  for (const id in rooms) {
-    const r = rooms[id];
-
-    /* remove dead sockets */
-    r.peers = r.peers.filter(c => c.readyState === 1);
-
-    if (!r.peers.length || (now - r.lastActive > ROOM_TTL)) {
-      delete rooms[id];
-    }
-  }
-}, CLEANUP_INTERVAL);
-
-/* file cleanup */
-setInterval(() => {
-  const now = Date.now();
-
-  for (const id in files) {
-    const f = files[id];
-
-    if (now - f.createdAt > FILE_TTL) {
-      fs.unlink(f.path, () => {});
-      delete files[id];
-    }
-  }
-}, CLEANUP_INTERVAL);
-
-/* ───────────────────────────────────────────── */
-
-server.listen(port, () => {
-  console.log(`Stelno hybrid server listening on port ${port}`);
-});
+console.log('WebSocket server running on port', port);
