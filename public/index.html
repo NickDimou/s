@@ -171,7 +171,7 @@ h2{
 #room-url{
   font-size:.67rem;
   font-family:ui-monospace,monospace;
-  color:rgba(0,255,255,0.5);
+  color:rgba(0,255,255,0.6);
   letter-spacing:.03rem;
   max-width:180px;
   white-space:nowrap;
@@ -184,7 +184,7 @@ h2{
 .room-btn{
   background:transparent;
   border:var(--border-soft);
-  color:rgba(0,255,255,0.5);
+  color:rgba(0,255,255,0.6);
   border-radius:20px;
   padding:3px 11px;
   font-size:.62rem;
@@ -254,7 +254,7 @@ h2{
 
 #status{
   font-size:var(--status-font-mobile);
-  color:rgba(0,255,255,0.35);
+  color:rgba(0,255,255,0.6);
   transition:color var(--transition-mid);
   letter-spacing:.03rem;
 }
@@ -394,7 +394,7 @@ progress::-moz-progress-bar{
 
   <div id="status-row">
     <span id="peer-dot" data-state="waiting" title="Peer status"></span>
-    <div id="status">Initializing...</div>
+    <div id="status" aria-live="polite">Initializing...</div>
   </div>
 
   <div id="xfer-info"></div>
