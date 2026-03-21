@@ -119,7 +119,7 @@ wss.on('connection', ws => {
 
       const r = rooms[room];
 
-      /* enforce 2-peer P2P */
+      /* enforce 3-peer P2P */
       if (r.peers.length >= MAX_PEERS_PER_ROOM) {
         if (ws.readyState === 1)
           ws.send(JSON.stringify({ error: 'room_full' }));
