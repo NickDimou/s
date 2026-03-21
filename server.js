@@ -2,8 +2,6 @@
 import { WebSocketServer } from 'ws';
 import http from 'http';
 import fs from 'fs';
-import crypto from 'crypto';
-import url from 'url';
 
 const port = process.env.PORT || 3000;
 
@@ -14,15 +12,11 @@ const ROOM_TTL = 1000 * 60 * 10; /* 10 min */
 const MAX_PEERS_PER_ROOM = 3;     /* 3 */
 const rooms = new Map();           /* roomId => { peers: Set(ws), lastActive: timestamp } */
 
-/* TURN server config */
-const TURN_SERVER = 'turn:your.turn.server:3478'; /* replace with your TURN server */
-const TURN_SECRET = 'superSecretKey';             /* long-term shared secret */
-
 /* ─────────────────────────────────────────────
-   FUNCTIONS
+   SERVER
 ───────────────────────────────────────────── */
+const wss = new WebSocketServer({ port });
 
-/* Validate incoming WS messages */
 function validateMessage(msg) {
   if (typeof msg !== 'object' || msg === null) return false;
   const keys = Object.keys(msg);
@@ -31,7 +25,6 @@ function validateMessage(msg) {
   );
 }
 
-/* Cleanup stale rooms */
 function cleanupRooms() {
   const now = Date.now();
   for (const [id, room] of rooms) {
@@ -42,21 +35,7 @@ function cleanupRooms() {
   }
 }
 
-/* Generate ephemeral TURN credentials */
-function generateTurnCredentials() {
-  const ttl = 3600; /* 1 hour */
-  const expiry = Math.floor(Date.now() / 1000) + ttl;
-  const username = expiry + ':' + crypto.randomBytes(4).toString('hex');
-  const hmac = crypto.createHmac('sha1', TURN_SECRET);
-  hmac.update(username);
-  const password = hmac.digest('base64');
-  return { username, credential: password, ttl, urls: [TURN_SERVER] };
-}
-
-/* ─────────────────────────────────────────────
-   WEBSOCKET SERVER
-───────────────────────────────────────────── */
-const wss = new WebSocketServer({ port });
+setInterval(cleanupRooms, 60 * 1000); /* every minute */
 
 wss.on('connection', ws => {
   let roomId = null;
@@ -64,7 +43,7 @@ wss.on('connection', ws => {
   ws.on('message', data => {
 	let msg;
 	try { msg = JSON.parse(data); } catch { return; }
-	if (!validateMessage(msg)) return;
+	if (!validateMessage(msg)) return; /* basic validation */
 
 	if (msg.join) {
 	  roomId = msg.join;
@@ -111,27 +90,4 @@ wss.on('connection', ws => {
   });
 });
 
-setInterval(cleanupRooms, 60 * 1000); /* every minute */
-
 console.log('WebSocket server running on port', port);
-
-/* ─────────────────────────────────────────────
-   HTTP SERVER FOR TURN CREDENTIALS
-───────────────────────────────────────────── */
-const httpServer = http.createServer((req, res) => {
-  const pathname = url.parse(req.url).pathname;
-
-  if (pathname === '/turn-cred') {
-	const creds = generateTurnCredentials();
-	res.writeHead(200, { 'Content-Type': 'application/json' });
-	res.end(JSON.stringify(creds));
-	return;
-  }
-
-  res.writeHead(404);
-  res.end();
-});
-
-httpServer.listen(port + 1, () => {
-  console.log('TURN credential server running on port', port + 1);
-});
