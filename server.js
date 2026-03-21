@@ -2,6 +2,8 @@
 import { WebSocketServer } from 'ws';
 import http from 'http';
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 const port = process.env.PORT || 3000;
 
@@ -11,33 +13,30 @@ const port = process.env.PORT || 3000;
 const ROOM_TTL = 1000 * 60 * 10; /* 10 min */
 const MAX_PEERS_PER_ROOM = 3;
 const HEARTBEAT_INTERVAL = 30000; /* 30 sec */
+const MAX_FILE_SIZE = 100 * 1024 * 1024; /* 100MB */
+const UPLOAD_TIMEOUT = 30000; /* 30 sec */
+
 const rooms = new Map(); /* roomId => { peers: Set(ws), lastActive: timestamp } */
-const files = new Map(); /* fileId => metadata, if you wire upload fallback later */
+const files = new Map(); /* fileId => { path, dir, createdAt, size } */
+
+const uploadRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stelno-'));
+try { fs.mkdirSync(uploadRoot, { recursive: true }); } catch {}
 
 /* ─────────────────────────────────────────────
-   SERVER
+   HELPERS
 ───────────────────────────────────────────── */
-const wss = new WebSocketServer({ port });
-
 function isShortString(v, max = 64) {
   return typeof v === 'string' && v.length > 0 && v.length <= max;
 }
 
 function isValidSignal(v) {
   if (!v || typeof v !== 'object') return false;
-
-  /* WebRTC offer/answer */
   if (v.type === 'offer' || v.type === 'answer') return true;
-
-  /* ICE candidate object */
   return typeof v.candidate === 'string' && v.candidate.length > 0;
 }
 
 function isKnownFileId(v) {
-  if (!isShortString(v, 128)) return false;
-
-  /* if you later populate files from fallback upload, this becomes strict */
-  return files.size === 0 || files.has(v);
+  return isShortString(v, 128) && files.has(v);
 }
 
 function validateMessage(msg) {
@@ -68,12 +67,19 @@ function validateMessage(msg) {
   return null;
 }
 
+function cleanupUpload(id) {
+  const f = files.get(id);
+  if (!f) return;
+  try { fs.unlinkSync(f.path); } catch {}
+  try { fs.rmSync(f.dir, { recursive: true, force: true }); } catch {}
+  files.delete(id);
+}
+
 function cleanupRooms() {
   const now = Date.now();
 
   for (const [id, room] of rooms) {
     for (const peer of room.peers) {
-      /* remove dead sockets */
       if (peer.isAlive === false) {
         peer.terminate();
         room.peers.delete(peer);
@@ -91,6 +97,145 @@ function cleanupRooms() {
 }
 
 setInterval(cleanupRooms, HEARTBEAT_INTERVAL);
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, f] of files) {
+    if (now - f.createdAt > ROOM_TTL) {
+      cleanupUpload(id);
+    }
+  }
+}, HEARTBEAT_INTERVAL);
+
+/* ─────────────────────────────────────────────
+   HTTP + WS SERVER
+───────────────────────────────────────────── */
+const server = http.createServer((req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  /* ── Fallback upload ── */
+  if (req.method === 'POST') {
+    const id = Math.random().toString(36).slice(2);
+    const dir = fs.mkdtempSync(path.join(uploadRoot, `${id}-`));
+    const filePath = path.join(dir, 'upload.bin');
+    const stream = fs.createWriteStream(filePath);
+
+    let size = 0;
+    let done = false;
+    let timedOut = false;
+
+    const finishOk = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      files.set(id, {
+        path: filePath,
+        dir,
+        createdAt: Date.now(),
+        size
+      });
+      res.end(id);
+    };
+
+    const fail = (code = 500, msg = 'Upload failed') => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { stream.destroy(); } catch {}
+      try { req.destroy(); } catch {}
+      try { res.writeHead(code); } catch {}
+      try { res.end(msg); } catch {}
+      try { fs.unlinkSync(filePath); } catch {}
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+    };
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      fail(408, 'Upload timeout');
+    }, UPLOAD_TIMEOUT);
+
+    req.on('data', chunk => {
+      if (done) return;
+
+      size += chunk.length;
+      if (size > MAX_FILE_SIZE) {
+        fail(413, 'File too large');
+        try { req.destroy(new Error('File too large')); } catch {}
+        return;
+      }
+
+      if (!stream.write(chunk)) {
+        req.pause();
+      }
+    });
+
+    stream.on('drain', () => {
+      try { req.resume(); } catch {}
+    });
+
+    req.on('end', () => {
+      if (done || timedOut) return;
+      stream.end(() => finishOk());
+    });
+
+    req.on('aborted', () => {
+      fail(499, 'Client aborted');
+    });
+
+    req.on('close', () => {
+      if (!done && size > 0) {
+        fail(499, 'Client closed');
+      }
+    });
+
+    req.on('error', () => {
+      fail();
+    });
+
+    stream.on('error', () => {
+      fail();
+    });
+
+    return;
+  }
+
+  /* ── Fallback download ── */
+  if (req.method === 'GET' && req.url.startsWith('/f/')) {
+    const id = req.url.split('/f/')[1];
+    const f = files.get(id);
+
+    if (!f) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${id}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    fs.createReadStream(f.path)
+      .on('error', () => {
+        try { res.end(); } catch {}
+      })
+      .pipe(res);
+
+    return;
+  }
+
+  res.end('stelno alive');
+});
+
+const wss = new WebSocketServer({ server });
 
 /* ─────────────────────────────────────────────
    CONNECTION HANDLER
@@ -132,7 +277,6 @@ wss.on('connection', ws => {
       room.peers.add(ws);
       room.lastActive = Date.now();
 
-      /* notify others */
       room.peers.forEach(peer => {
         if (peer !== ws && peer.readyState === 1) {
           try { peer.send(JSON.stringify({ peerJoined: true })); } catch {}
@@ -147,7 +291,6 @@ wss.on('connection', ws => {
     const room = rooms.get(roomId);
     room.lastActive = Date.now();
 
-    /* relay signals & files */
     if (kind === 'signal' || kind === 'file' || kind === 'checkPeers') {
       room.peers.forEach(peer => {
         if (peer !== ws && peer.readyState === 1) {
@@ -173,4 +316,6 @@ wss.on('connection', ws => {
   ws.on('error', () => {});
 });
 
-console.log('WebSocket server running on port', port);
+server.listen(port, () => {
+  console.log('WebSocket server running on port', port);
+});
