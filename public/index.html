@@ -533,18 +533,24 @@ ws.onopen = () => {
   setInterval(() => { if (!connected) sendWS({ checkPeers: true }); }, 5000);
 };
 
-/* ── WebRTC ── */
-const pc = new RTCPeerConnection({
- iceServers: [
-   { urls: 'stun:stun.l.google.com:19302' },
-   {
-     urls: 'turn:stun.cloudflare.com:3478',
-     username: 'b4aae85474d13009d9e71f2a60fee4908f1da1f44ae3dec6d18d046238483e2360225ee6588',
-     credential: 'aba9b169546eb6dcc7bfb1cdf34544cf95b5161d602e365fa7c8342b2e9802fb'
-   }
- ]
+/* ── Fetch ephemeral TURN credentials from server ── */
+async function getTurnConfig() {
+  const res = await fetch('/turn-cred'); /* or full URL if cross-origin */
+  if (!res.ok) throw new Error('Failed to fetch TURN credentials');
+  const cred = await res.json();
+  return [
+    { urls: 'stun:stun.l.google.com:19302' }, /* optional fallback STUN */
+    {
+      urls: cred.urls,
+      username: cred.username,
+      credential: cred.credential
+    }
+  ];
+}
 
-});
+/* ── WebRTC ── */
+const pc = new RTCPeerConnection({ iceServers: await getTurnConfig() });
+
 
 
 
