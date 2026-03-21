@@ -361,6 +361,32 @@ server.on('clientError', (err, socket) => {
   try { socket.end('HTTP/1.1 400 Bad Request\r\n\r\n'); } catch {}
 });
 
+/* ── CANCEL UPLOAD ENDPOINT ── */
+server.on('request', async (req, res) => {
+  if (req.method === 'POST' && req.url === '/cancel') {
+	let body = '';
+	req.on('data', chunk => { body += chunk; });
+	req.on('end', async () => {
+	  try {
+		const { fileId } = JSON.parse(body);
+		if (!isValidFileId(fileId)) {
+		  res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+		  res.end('Invalid file ID');
+		  return;
+		}
+		await cleanupUploadAsync(fileId);
+		res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+		res.end('File cancelled');
+	  } catch {
+		res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+		res.end('Invalid request');
+	  }
+	});
+	return;
+  }
+});
+
+
 /* ─────────────────────────────────────────────
    WEBSOCKET SERVER
 ───────────────────────────────────────────── */
