@@ -86,12 +86,13 @@ body{
 
 #box{
   text-align:center;
-  padding:30px 25px;
+  padding:15px 5px;
   border-radius:var(--box-radius);
   background:var(--box-bg);
   backdrop-filter:blur(var(--box-blur));
   box-shadow:var(--accent-glow-mid);
   transition:transform var(--transition-mid),box-shadow var(--transition-mid);
+  max-width: 340px;
 }
 
 #box:hover{
@@ -328,6 +329,7 @@ progress::-moz-progress-bar{
     background:linear-gradient(145deg,rgba(20,20,20,0.7),rgba(30,30,30,0.5));
     transition:transform var(--transition-slow),box-shadow var(--transition-slow),background var(--transition-slow);
     box-shadow:var(--accent-glow-strong);
+    max-width: none;
   }
 
   #box:hover{
