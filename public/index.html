@@ -594,62 +594,40 @@ function setup() {
   dc.onmessage = async e => {
     try {
       if (typeof e.data === 'string') {
-        /* incoming file metadata → prepare receive-side streaming */
-        fileMeta = JSON.parse(e.data);
+        /* incoming file metadata → show receive-side progress bar */
+        const meta     = JSON.parse(e.data);
+        fileMeta       = meta;
+        receivedChunks = [];
+        expectedChunks = meta.chunks;
+        rcvStartTime   = Date.now();
         cancelTransfer = false;
-
-        prog.value = 0;
-        prog.style.display = 'block';
+        prog.value = 0; prog.style.display = 'block';
         showCancel();
-
-        s.textContent = `Receiving ${shortName(fileMeta.name)} via P2P ⚡`;
-
-        /* setup stream to write directly to blob chunks incrementally */
-        const streamController = new TransformStream();
-        const writableStream = streamController.writable.getWriter();
-
-        receivedChunks = { writer: writableStream, bytes: 0 };
-        rcvStartTime = Date.now();
-
+        s.textContent = `Receiving ${shortName(meta.name)} via P2P ⚡`;
       } else {
-        if (cancelTransfer || !receivedChunks) return;
+        /* binary chunk */
+        if (cancelTransfer) return;
+        receivedChunks.push(e.data);
+        prog.value = (receivedChunks.length / expectedChunks) * 100;
 
-        /* write the chunk directly to stream */
-        await receivedChunks.writer.write(e.data);
-        receivedChunks.bytes += e.data.byteLength;
-
-        /* update progress + speed */
-        const progValue = (receivedChunks.bytes / fileMeta.size) * 100;
-        prog.value = Math.min(progValue, 100);
-
-        const elapsed = (Date.now() - rcvStartTime) / 1000 || 0.001;
-        const speed = receivedChunks.bytes / elapsed;
-        const remaining = (fileMeta.size - receivedChunks.bytes) / speed;
+        /* receive-side speed + ETA */
+        const elapsed   = (Date.now() - rcvStartTime) / 1000 || 0.001;
+        const rcvBytes  = receivedChunks.length * 16 * 1024;
+        const speed     = rcvBytes / elapsed;
+        const remaining = ((expectedChunks - receivedChunks.length) * 16 * 1024) / speed;
         showXferInfo(`↓ ${fmtSpeed(speed)}  —  ${fmtETA(remaining)}`);
 
-        /* check for completion */
-        if (receivedChunks.bytes >= fileMeta.size) {
-          await receivedChunks.writer.close();
-          const blob = await new Response(streamController.readable).blob();
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
-          a.download = fileMeta.name;
-          a.click();
-
+        if (receivedChunks.length === expectedChunks) {
+          const blob = new Blob(receivedChunks, { type: fileMeta.type });
+          const a    = document.createElement('a');
+          a.href = URL.createObjectURL(blob); a.download = fileMeta.name; a.click();
           s.textContent = `Received ${shortName(fileMeta.name)} ✅`;
           prog.value = 0; prog.style.display = 'none';
           hideCancel(); hideXferInfo();
-
-          /* cleanup */
-          receivedChunks = null;
-          fileMeta = null;
         }
       }
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { console.error(err); }
   };
-
 }
 
 dc = pc.createDataChannel('f');
@@ -762,8 +740,9 @@ async function sendFile(file) {
   if (!file) return;
 
   cancelTransfer = false;
-  const chunkSize = 16 * 1024; /* 16KB chunks for smooth backpressure */
-  const chunks    = Math.ceil(file.size / chunkSize);
+  const chunkSize = 16 * 1024;
+  const buffer    = await file.arrayBuffer();
+  const chunks    = Math.ceil(buffer.byteLength / chunkSize);
 
   s.textContent = 'Preparing...';
   prog.value = 0; prog.style.display = 'block';
@@ -780,39 +759,32 @@ async function sendFile(file) {
   playSound();
 
   if (connected && !fallbackMode) {
-    /* send metadata first */
     dc.send(JSON.stringify({ name: file.name, type: file.type, chunks }));
 
-    let offset = 0;
+    let offset    = 0;
     let startTime = Date.now();
-    let lastUI = startTime;
+    let lastUI    = startTime;
 
-    while (offset < file.size) {
+    while (offset < buffer.byteLength) {
       if (cancelTransfer) {
         prog.value = 0; prog.style.display = 'none';
         hideCancel(); hideXferInfo();
         s.textContent = 'Transfer cancelled ✕';
         return;
       }
-
-      /* backpressure handling */
       while (dc.bufferedAmount > 16 * chunkSize)
         await new Promise(r => setTimeout(r, 50));
 
-      /* read slice directly (streaming) */
-      const slice = file.slice(offset, offset + chunkSize);
-      const buf   = await slice.arrayBuffer();
-      dc.send(buf);
+      dc.send(buffer.slice(offset, offset + chunkSize));
       offset += chunkSize;
-
-      prog.value = Math.min((offset / file.size) * 100, 100);
+      prog.value = Math.min((offset / buffer.byteLength) * 100, 100);
 
       const now = Date.now();
       if (now - lastUI > 300) {
-        const elapsed = (now - startTime) / 1000 || 0.001;
-        const speed = offset / elapsed;
-        const remaining = (file.size - offset) / speed;
-        showXferInfo(`↑ ${fmtSpeed(speed)}  —  ${fmtETA(remaining)}`);
+        const elapsed   = (now - startTime) / 1000 || 0.001;
+        const speed     = offset / elapsed;
+        const bytesLeft = buffer.byteLength - offset;
+        showXferInfo(`↑ ${fmtSpeed(speed)}  —  ${fmtETA(bytesLeft / speed)}`);
         lastUI = now;
       }
     }
@@ -821,8 +793,7 @@ async function sendFile(file) {
     prog.value = 0; prog.style.display = 'none';
     hideCancel(); hideXferInfo();
 
-  } else {
-    /* fallback for non-P2P */
+    } else {
     if (file.size > MAX_FALLBACK_SIZE) {
       s.textContent = 'File too large for fallback ⚠️';
       prog.value = 0; prog.style.display = 'none';
@@ -842,8 +813,8 @@ async function sendFile(file) {
     prog.value = 0; prog.style.display = 'none';
     hideCancel(); hideXferInfo();
   }
-}
 
+}
 
 function shortName(name, max = 20) {
   if (name.length <= max) return name;
