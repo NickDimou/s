@@ -17,21 +17,60 @@
   --bg-gradient: linear-gradient(145deg,#030504,#1c1c1c);
   --text-color: #fafafa;
   --accent-color: #0ff;
+
+  /* core surfaces */
   --box-bg: rgba(20,20,20,0.5);
+  --panel-bg-dark: rgba(10,10,10,0.9);
+
+  /* effects */
   --box-blur: 12px;
-  --box-shadow: 0 0 40px rgba(0,255,255,0.1);
   --box-radius: 36px;
+
+  /* glow system */
+  --accent-glow-soft: 0 0 20px rgba(0,255,255,0.2);
+  --accent-glow-mid: 0 0 40px rgba(0,255,255,0.25);
+  --accent-glow-strong: 0 0 100px rgba(0,255,255,0.35);
+
+  /* borders */
+  --border-soft: 1px solid rgba(0,255,255,0.25);
+  --border-mid: 1px solid rgba(0,255,255,0.35);
+  --border-strong: 2px dashed var(--accent-color);
+
+  /* backgrounds */
+  --accent-bg-soft: rgba(0,255,255,0.05);
+  --accent-bg-mid: rgba(0,255,255,0.1);
+
+  /* typography */
+  --h2-font-mobile: 2.9em;
+  --h2-font-desktop: 3.2rem;
+  --status-font-mobile: .8rem;
+
+  /* layout */
   --drop-padding-mobile: 100px 50px;
   --drop-padding-desktop: 220px 190px;
   --drop-radius-mobile: 36px;
   --drop-radius-desktop: 40px;
-  --drop-border: 2px dashed #444;
-  --h2-font-mobile: 2.9em;
-  --h2-font-desktop: 3.2rem;
-  --status-font-mobile: .8rem;
+
+  /* progress */
   --progress-height: 16px;
   --progress-radius: 36px;
+
+  /* timing */
   --pulse-duration: 6s;
+  --transition-fast: .2s;
+  --transition-mid: .3s;
+  --transition-slow: .4s;
+
+  /* status */
+  --status-waiting: #777;
+  --status-present: #fc0;
+  --status-connected: var(--accent-color);
+}
+
+*{
+  user-select:none;
+  -webkit-user-select:none;
+  -webkit-tap-highlight-color:transparent;
 }
 
 body{
@@ -51,23 +90,28 @@ body{
   border-radius:var(--box-radius);
   background:var(--box-bg);
   backdrop-filter:blur(var(--box-blur));
-  box-shadow:var(--box-shadow);
-  transition:transform 0.3s ease,box-shadow 0.3s ease;
+  box-shadow:var(--accent-glow-mid);
+  transition:transform var(--transition-mid),box-shadow var(--transition-mid);
 }
 
 #box:hover{
   transform:scale(1.03);
-  box-shadow:0 0 60px rgba(0,255,255,0.2);
+  box-shadow:var(--accent-glow-strong);
 }
 
 h2{
-  margin:10px 0 30px 0;
+  margin:10px 0 30px;
   font-size:var(--h2-font-mobile);
   letter-spacing:1px;
   color:var(--accent-color);
 }
 
-.logo{width:60px;height:auto;display:block;margin:0 auto;}
+.logo{
+  width:60px;
+  height:auto;
+  display:block;
+  margin:0 auto;
+}
 
 #drop{
   position:relative;
@@ -81,7 +125,8 @@ h2{
 #drop progress{
   display:none;
   position:absolute;
-  bottom:0;left:0;
+  bottom:0;
+  left:0;
   width:100%;
   height:var(--progress-height);
   margin:0;
@@ -94,8 +139,7 @@ h2{
 #drop::before{
   content:'';
   position:absolute;
-  top:0;left:0;
-  width:100%;height:100%;
+  inset:0;
   background:linear-gradient(90deg,rgba(0,255,255,0),rgba(0,255,255,0.3));
   transform:translateX(-100%);
   animation:dropPulse var(--pulse-duration) infinite;
@@ -104,11 +148,18 @@ h2{
 }
 
 #drop *{position:relative;z-index:1;}
-#drop:hover{border-color:var(--accent-color);background:rgba(0,255,255,0.05);box-shadow:0 0 20px rgba(0,255,255,0.2);}
-#drop.drag { border-color: var(--accent-color); }
 
+#drop:hover{
+  border-color:var(--accent-color);
+  background:var(--accent-bg-soft);
+  box-shadow:var(--accent-glow-soft);
+}
 
-/* ── Room link bar ── */
+#drop.drag{
+  border-color:var(--accent-color);
+}
+
+/* room bar */
 #room-bar{
   display:flex;
   align-items:center;
@@ -132,38 +183,44 @@ h2{
 
 .room-btn{
   background:transparent;
-  border:1px solid rgba(0,255,255,0.25);
+  border:var(--border-soft);
   color:rgba(0,255,255,0.5);
   border-radius:20px;
   padding:3px 11px;
   font-size:.62rem;
   font-family:system-ui;
   cursor:pointer;
-  transition:border-color .2s,color .2s,box-shadow .2s;
+  transition:border-color var(--transition-fast),color var(--transition-fast),box-shadow var(--transition-fast);
   white-space:nowrap;
 }
+
 .room-btn:hover{
   border-color:var(--accent-color);
   color:var(--accent-color);
-  box-shadow:0 0 8px rgba(0,255,255,0.2);
+  box-shadow:var(--accent-glow-soft);
 }
 
-/* ── QR panel ── */
+/* QR */
 #qr-panel{
   display:none;
   margin:14px auto 0;
   width:fit-content;
-  background:rgba(10,10,10,0.9);
-  border:1px solid rgba(0,255,255,0.2);
+  background:var(--panel-bg-dark);
+  border:var(--border-soft);
   border-radius:16px;
   padding:14px;
-  box-shadow:0 0 28px rgba(0,255,255,0.14);
+  box-shadow:var(--accent-glow-mid);
 }
-#qr-panel.open{display:block;}
-#qr-canvas img,
-#qr-canvas canvas{display:block;border-radius:8px;}
 
-/* ── Peer presence indicator ── */
+#qr-panel.open{display:block;}
+
+#qr-canvas img,
+#qr-canvas canvas{
+  display:block;
+  border-radius:8px;
+}
+
+/* status */
 #status-row{
   display:flex;
   align-items:center;
@@ -174,28 +231,40 @@ h2{
 
 #peer-dot{
   display:inline-block;
-  width:8px;height:8px;
+  width:8px;
+  height:8px;
   border-radius:50%;
   flex-shrink:0;
   transition:background .4s,box-shadow .4s;
 }
-#peer-dot[data-state="waiting"]  {background:#333;box-shadow:none;}
-#peer-dot[data-state="present"]  {background:#fc0;box-shadow:0 0 7px rgba(255,204,0,.8);}
-#peer-dot[data-state="connected"]{background:var(--accent-color);box-shadow:0 0 9px rgba(0,255,255,.8);}
+
+#peer-dot[data-state="waiting"]{
+  background:var(--status-waiting);
+}
+
+#peer-dot[data-state="present"]{
+  background:var(--status-present);
+  box-shadow:0 0 7px rgba(255,204,0,.8);
+}
+
+#peer-dot[data-state="connected"]{
+  background:var(--status-connected);
+  box-shadow:0 0 9px rgba(0,255,255,.8);
+}
 
 #status{
   font-size:var(--status-font-mobile);
   color:rgba(0,255,255,0.35);
-  transition:color 0.3s;
+  transition:color var(--transition-mid);
   letter-spacing:.03rem;
 }
 
-/* ── Cancel button ── */
+/* cancel */
 #cancel{
   display:none;
   margin-top:12px;
   background:transparent;
-  border:1px solid rgba(0,255,255,0.35);
+  border:var(--border-mid);
   color:rgba(0,255,255,0.6);
   border-radius:24px;
   padding:5px 20px;
@@ -203,15 +272,16 @@ h2{
   font-family:system-ui;
   letter-spacing:.06rem;
   cursor:pointer;
-  transition:border-color 0.2s,color 0.2s,box-shadow 0.2s;
+  transition:border-color var(--transition-fast),color var(--transition-fast),box-shadow var(--transition-fast);
 }
+
 #cancel:hover{
   border-color:var(--accent-color);
   color:var(--accent-color);
-  box-shadow:0 0 12px rgba(0,255,255,0.2);
+  box-shadow:var(--accent-glow-soft);
 }
 
-/* ── Speed / ETA line ── */
+/* transfer info */
 #xfer-info{
   display:none;
   margin-top:5px;
@@ -220,47 +290,74 @@ h2{
   letter-spacing:.04rem;
 }
 
-/* ── FIX 1: restore pulse animation on progress bar fill ── */
-progress::-webkit-progress-bar{background:#222;}
-progress::-webkit-progress-value{background:var(--accent-color);animation:pulse var(--pulse-duration) infinite;}
-progress::-moz-progress-bar{background:var(--accent-color);animation:pulse var(--pulse-duration) infinite;}
+/* progress */
+progress::-webkit-progress-bar{
+  background:#222;
+}
+
+progress::-webkit-progress-value{
+  background:var(--accent-color);
+  animation:pulse var(--pulse-duration) infinite;
+}
+
+progress::-moz-progress-bar{
+  background:var(--accent-color);
+  animation:pulse var(--pulse-duration) infinite;
+}
 
 #translate{display:none !important;}
 
-@keyframes pulse{0%{width:20%;}50%{width:80%;}100%{width:20%;}}
-@keyframes dropPulse{0%{transform:translateX(-100%);}50%{transform:translateX(0);}100%{transform:translateX(100%);}}
+@keyframes pulse{
+  0%{width:20%;}
+  50%{width:80%;}
+  100%{width:20%;}
+}
 
+@keyframes dropPulse{
+  0%{transform:translateX(-100%);}
+  50%{transform:translateX(0);}
+  100%{transform:translateX(100%);}
+}
+
+/* desktop */
 @media(min-width:1024px){
   #box{
     padding:30px 60px;
     border-radius:40px;
-    box-shadow:0 0 80px rgba(0,255,255,0.25);
     font-size:1.8rem;
-    transition:transform 0.4s ease,box-shadow 0.4s ease,background 0.4s ease;
     background:linear-gradient(145deg,rgba(20,20,20,0.7),rgba(30,30,30,0.5));
+    transition:transform var(--transition-slow),box-shadow var(--transition-slow),background var(--transition-slow);
+    box-shadow:var(--accent-glow-strong);
   }
+
   #box:hover{
     transform:scale(1.05);
-    box-shadow:0 0 100px rgba(0,255,255,0.35);
+    box-shadow:var(--accent-glow-strong);
     background:linear-gradient(145deg,rgba(20,20,20,0.8),rgba(30,30,30,0.6));
   }
+
   h2{font-size:var(--h2-font-desktop);}
+
   .logo{width:80px;}
+
   #drop{
     padding:var(--drop-padding-desktop);
     border-radius:var(--drop-radius-desktop);
-    border:2px dashed var(--accent-color);
+    border:var(--border-strong);
     background:linear-gradient(135deg,rgba(0,255,255,0.02),rgba(0,255,255,0.05));
-    box-shadow:0 0 30px rgba(0,255,255,0.1);
-    transition:border 0.3s,background 0.3s,box-shadow 0.3s,transform 0.3s;
+    box-shadow:var(--accent-glow-soft);
+    transition:border var(--transition-mid),background var(--transition-mid),box-shadow var(--transition-mid),transform var(--transition-mid);
   }
+
   #drop:hover{
-    background:linear-gradient(135deg,rgba(0,255,255,0.05),rgba(0,255,255,0.1));
-    box-shadow:0 0 50px rgba(0,255,255,0.25);
+    background:linear-gradient(135deg,var(--accent-bg-soft),var(--accent-bg-mid));
+    box-shadow:var(--accent-glow-mid);
     transform:scale(1.02);
   }
+
   #room-url{max-width:280px;}
 }
+
 </style>
 </head>
 <body>
@@ -497,40 +594,62 @@ function setup() {
   dc.onmessage = async e => {
     try {
       if (typeof e.data === 'string') {
-        /* incoming file metadata → show receive-side progress bar */
-        const meta     = JSON.parse(e.data);
-        fileMeta       = meta;
-        receivedChunks = [];
-        expectedChunks = meta.chunks;
-        rcvStartTime   = Date.now();
+        /* incoming file metadata → prepare receive-side streaming */
+        fileMeta = JSON.parse(e.data);
         cancelTransfer = false;
-        prog.value = 0; prog.style.display = 'block';
-        showCancel();
-        s.textContent = `Receiving ${shortName(meta.name)} via P2P ⚡`;
-      } else {
-        /* binary chunk */
-        if (cancelTransfer) return;
-        receivedChunks.push(e.data);
-        prog.value = (receivedChunks.length / expectedChunks) * 100;
 
-        /* receive-side speed + ETA */
-        const elapsed   = (Date.now() - rcvStartTime) / 1000 || 0.001;
-        const rcvBytes  = receivedChunks.length * 16 * 1024;
-        const speed     = rcvBytes / elapsed;
-        const remaining = ((expectedChunks - receivedChunks.length) * 16 * 1024) / speed;
+        prog.value = 0;
+        prog.style.display = 'block';
+        showCancel();
+
+        s.textContent = `Receiving ${shortName(fileMeta.name)} via P2P ⚡`;
+
+        /* setup stream to write directly to blob chunks incrementally */
+        const streamController = new TransformStream();
+        const writableStream = streamController.writable.getWriter();
+
+        receivedChunks = { writer: writableStream, bytes: 0 };
+        rcvStartTime = Date.now();
+
+      } else {
+        if (cancelTransfer || !receivedChunks) return;
+
+        /* write the chunk directly to stream */
+        await receivedChunks.writer.write(e.data);
+        receivedChunks.bytes += e.data.byteLength;
+
+        /* update progress + speed */
+        const progValue = (receivedChunks.bytes / fileMeta.size) * 100;
+        prog.value = Math.min(progValue, 100);
+
+        const elapsed = (Date.now() - rcvStartTime) / 1000 || 0.001;
+        const speed = receivedChunks.bytes / elapsed;
+        const remaining = (fileMeta.size - receivedChunks.bytes) / speed;
         showXferInfo(`↓ ${fmtSpeed(speed)}  —  ${fmtETA(remaining)}`);
 
-        if (receivedChunks.length === expectedChunks) {
-          const blob = new Blob(receivedChunks, { type: fileMeta.type });
-          const a    = document.createElement('a');
-          a.href = URL.createObjectURL(blob); a.download = fileMeta.name; a.click();
+        /* check for completion */
+        if (receivedChunks.bytes >= fileMeta.size) {
+          await receivedChunks.writer.close();
+          const blob = await new Response(streamController.readable).blob();
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = fileMeta.name;
+          a.click();
+
           s.textContent = `Received ${shortName(fileMeta.name)} ✅`;
           prog.value = 0; prog.style.display = 'none';
           hideCancel(); hideXferInfo();
+
+          /* cleanup */
+          receivedChunks = null;
+          fileMeta = null;
         }
       }
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   };
+
 }
 
 dc = pc.createDataChannel('f');
@@ -643,9 +762,8 @@ async function sendFile(file) {
   if (!file) return;
 
   cancelTransfer = false;
-  const chunkSize = 16 * 1024;
-  const buffer    = await file.arrayBuffer();
-  const chunks    = Math.ceil(buffer.byteLength / chunkSize);
+  const chunkSize = 16 * 1024; /* 16KB chunks for smooth backpressure */
+  const chunks    = Math.ceil(file.size / chunkSize);
 
   s.textContent = 'Preparing...';
   prog.value = 0; prog.style.display = 'block';
@@ -662,32 +780,39 @@ async function sendFile(file) {
   playSound();
 
   if (connected && !fallbackMode) {
+    /* send metadata first */
     dc.send(JSON.stringify({ name: file.name, type: file.type, chunks }));
 
-    let offset    = 0;
+    let offset = 0;
     let startTime = Date.now();
-    let lastUI    = startTime;
+    let lastUI = startTime;
 
-    while (offset < buffer.byteLength) {
+    while (offset < file.size) {
       if (cancelTransfer) {
         prog.value = 0; prog.style.display = 'none';
         hideCancel(); hideXferInfo();
         s.textContent = 'Transfer cancelled ✕';
         return;
       }
+
+      /* backpressure handling */
       while (dc.bufferedAmount > 16 * chunkSize)
         await new Promise(r => setTimeout(r, 50));
 
-      dc.send(buffer.slice(offset, offset + chunkSize));
+      /* read slice directly (streaming) */
+      const slice = file.slice(offset, offset + chunkSize);
+      const buf   = await slice.arrayBuffer();
+      dc.send(buf);
       offset += chunkSize;
-      prog.value = Math.min((offset / buffer.byteLength) * 100, 100);
+
+      prog.value = Math.min((offset / file.size) * 100, 100);
 
       const now = Date.now();
       if (now - lastUI > 300) {
-        const elapsed   = (now - startTime) / 1000 || 0.001;
-        const speed     = offset / elapsed;
-        const bytesLeft = buffer.byteLength - offset;
-        showXferInfo(`↑ ${fmtSpeed(speed)}  —  ${fmtETA(bytesLeft / speed)}`);
+        const elapsed = (now - startTime) / 1000 || 0.001;
+        const speed = offset / elapsed;
+        const remaining = (file.size - offset) / speed;
+        showXferInfo(`↑ ${fmtSpeed(speed)}  —  ${fmtETA(remaining)}`);
         lastUI = now;
       }
     }
@@ -696,7 +821,8 @@ async function sendFile(file) {
     prog.value = 0; prog.style.display = 'none';
     hideCancel(); hideXferInfo();
 
-    } else {
+  } else {
+    /* fallback for non-P2P */
     if (file.size > MAX_FALLBACK_SIZE) {
       s.textContent = 'File too large for fallback ⚠️';
       prog.value = 0; prog.style.display = 'none';
@@ -716,8 +842,8 @@ async function sendFile(file) {
     prog.value = 0; prog.style.display = 'none';
     hideCancel(); hideXferInfo();
   }
-
 }
+
 
 function shortName(name, max = 20) {
   if (name.length <= max) return name;
