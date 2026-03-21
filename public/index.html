@@ -355,8 +355,72 @@ progress::-moz-progress-bar{
     transform:scale(1.02);
   }
 
-  #room-url{max-width:280px;}
-}
+  #room-url{max-width:280px;}}
+
+
+  @media(max-width:1023px) and (orientation:landscape){
+
+  body{padding:10px;align-items:center;justify-content:center;}
+
+  #box{
+    position:relative;
+    max-width:333px;
+    width:100%;
+    margin:auto;
+    padding:20px;
+    border-radius:36px;
+    text-align:center;
+  }
+
+  /* QR becomes side drawer */
+  #qr-panel{
+    position:absolute;
+    top:50%;
+    right:-200px;
+    transform:translateY(-50%);
+    width:140px;
+    padding:10px;
+    margin:0;
+    display:block;
+    transition:transform .3s,opacity .3s;
+  }
+
+  /* hidden */
+  #qr-panel:not(.open){
+    transform:translate(20px,-50%);
+    opacity:0;
+    pointer-events:none;
+  }
+
+  /* visible */
+  #qr-panel.open{
+    transform:translate(0,-50%);
+    opacity:1;
+    pointer-events:auto;
+  }
+
+  /* QR size control */
+  #qr-canvas canvas,
+  #qr-canvas img{
+    width:155px;
+    height:155px;
+    display:block;
+    margin:auto;
+  }
+
+  /* small adjustments */
+  h2{font-size:1.9rem;margin:8px 0 20px;}
+  .logo{width:48px;}
+  #drop{padding:40px 25px;font-size:1.05rem;}
+  #room-url{max-width:120px;font-size:.8rem;}
+  .room-btn{padding:4px 12px;font-size:.8rem;}
+  #status-row{gap:5px;margin-top:10px;}
+  #xfer-info{font-size:.65rem;}
+  #cancel{padding:4px 16px;font-size:.65rem;}
+  #qr-panel{box-shadow:-10px 0 30px rgba(0,0,0,0.4);}
+
+  }
+
 
 </style>
 </head>
