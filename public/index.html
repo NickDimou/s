@@ -365,6 +365,10 @@ progress::-moz-progress-bar{
   transform:translateY(-4px);
 }
 
+.muted{
+  opacity:.6;
+  font-size:.9em;
+}
 
 @keyframes pulse{
   0%{width:20%;}
@@ -537,15 +541,30 @@ progress::-moz-progress-bar{
   <button id="cancel" aria-label="Cancel file transfer">✕ Cancel</button>
 
   <!-- info toggle inside box -->
-  <div id="info-container">
-    <span id="info-pill" title="App info" aria-label="App info">ℹ</span>
-    <div id="info-panel">
-      <p><strong>Stelno</strong> – Send everything fast and easy ⚡</p>
-      <p>Created by Pavlos Mavromatis</p>
-      <p>© 2026 Stelno. All rights reserved.</p>
-      <p>Version 33</p>
-    </div>
-  </div>
+ <div id="info-container">
+   <span id="info-pill" title="App info" aria-label="App info">ℹ</span>
+   <div id="info-panel">
+     <p>
+       <strong class="noTrans">Stelno</strong><br>
+       Instant secure file transfer ⚡
+     </p>
+
+     <p>No accounts · No storage · Peer-to-peer</p>
+
+     <p class="muted">Private · Minimal · Instant</p>
+
+     <p>
+       Made in Canada<br>
+       Imagined in Macedonia, Greece
+     </p>
+
+     <p class="muted">© 2026 Mavromatis Institute · Pavlos Mavromatis</p>
+
+     <p class="muted">v3.3</p>
+   </div>
+ </div>
+
+
 
 
 </div>
@@ -599,19 +618,25 @@ progress::-moz-progress-bar{
 
   /* QR button */
   qrBtn.onclick = e => {
-    let qrDone = false;
     e.stopPropagation();
-    vibrateMobile(20); /* vibration only on mobile */
+    vibrateMobile(20);
+
     qrPanel.classList.toggle('open');
-    if (!qrDone && qrPanel.classList.contains('open')) {
-      new window.QRCode(document.getElementById('qr-canvas'), {
+
+    if (qrPanel.classList.contains('open')) {
+      const el = document.getElementById('qr-canvas');
+      el.innerHTML = ''; /* ← kill previous QR */
+
+      new window.QRCode(el, {
         text: location.href,
-        width: 148, height: 148,
-        colorDark: '#00ffff', colorLight: '#111111',
+        width: 148,
+        height: 148,
+        colorDark: '#00ffff',
+        colorLight: '#111111',
       });
-      qrDone = true;
     }
   };
+
 
   /* ── peer dot helper ── */
   function setPeer(state) { peerDot.dataset.state = state; }
