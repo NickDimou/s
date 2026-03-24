@@ -370,6 +370,47 @@ progress::-moz-progress-bar{
   font-size:.9em;
 }
 
+#media-bar {
+  display: none;
+  margin-top: 10px;
+  gap: 7px;
+  justify-content: center;
+  align-items: center;
+}
+
+#btn-stop-media {
+  display: none;
+}
+
+#video-row {
+  display: none;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+#stelno-local,
+#stelno-remote {
+  width: 120px;
+  height: 90px;
+  border-radius: 36px;
+  object-fit: cover;
+  background: #000;
+}
+
+#audio-row {
+  display: none;
+  justify-content: center;
+  align-items: center;
+  margin-top: 10px;
+}
+
+#audio-wave {
+  border-radius: 36px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(0, 255, 255, 0.15);
+}
+
 @keyframes pulse{
   0%{width:20%;}
   50%{width:80%;}
@@ -540,507 +581,1088 @@ progress::-moz-progress-bar{
   <div id="xfer-info"></div>
   <button id="cancel" aria-label="Cancel file transfer">✕ Cancel</button>
 
-  <!-- info toggle inside box -->
- <div id="info-container">
-   <span id="info-pill" title="App info" aria-label="App info">ℹ</span>
-   <div id="info-panel">
-     <p>
-       <strong class="noTrans">Stelno</strong><br>
-       Instant secure file transfer ⚡
-     </p>
+  <div id="media-bar">
+    <button class="room-btn" id="btn-cam">📷 Camera</button>
+    <button class="room-btn" id="btn-mic">🎙 Audio</button>
+    <button class="room-btn" id="btn-screen">🖥 Screen</button>
+    <button class="room-btn" id="btn-stop-media">⏹ Stop</button>
+  </div>
 
-     <p>No accounts · No storage · Peer-to-peer</p>
+  <div id="video-row">
+    <video id="stelno-local"  autoplay muted     playsinline></video>
+    <video id="stelno-remote" autoplay playsinline></video>
+  </div>
 
-     <p class="muted">Private · Minimal · Instant</p>
+  <div id="audio-row">
+    <canvas id="audio-wave" width="240" height="60"></canvas>
+  </div>
 
-     <p>
-       Made in Canada<br>
-       Imagined in Macedonia, Greece
-     </p>
+  <audio id="stelno-remote-audio" autoplay playsinline></audio>
 
-     <p class="muted">© 2026 Mavromatis Institute | Mi · Pavlos Mavromatis</p>
-
-     <p class="muted">v3.3</p>
-   </div>
- </div>
-
+  <div id="info-container">
+    <span id="info-pill" title="App info" aria-label="App info">ℹ</span>
+    <div id="info-panel">
+      <p><strong class="noTrans">Stelno</strong><br>Instant secure file transfer ⚡</p>
+      <p>No accounts · No storage · Peer-to-peer</p>
+      <p class="muted">Private · Minimal · Instant</p>
+      <p>Made in Canada<br>Imagined in Macedonia, Greece</p>
+      <p class="muted">© 2026 Mavromatis Institute | Mi · Pavlos Mavromatis</p>
+      <p class="muted">v3.3</p>
+    </div>
+  </div>
 
 
 
 </div>
 
 
+<!-- Client responsibilities (what should run client-side)
+  Peer-to-peer connection
+  WebRTC peer setup, data channels, media channels
+  Candidate gathering and signaling through server
+  Resumable / chunked uploads
+  Split large files into chunks
+  Retry failed chunks
+  Optionally parallelize chunks for speed
+  Encryption & privacy
+  Encrypt chunks before sending (end-to-end)
+  Decrypt on receiving end
+  Progress / UI
+  Upload/download progress bars
+  Notifications for peer joins/leaves
+  Error reporting for failed transfers
+  Caching / offline
+  Store unsent files locally until server is available
+  Retry automatically
+  Post-processing
+  Compress, resize, or encode files before sending
+  Validate file hashes before sending
+  Peer-to-peer optimizations (optional)
+  Swarming / chunk exchange between peers (like BitTorrent)
+  Reduces load on the server if multiple peers download the same file -->
 
 
-<script type="module">
-  /* ── config ── */
-  const WS   = 'wss://stelno.onrender.com';
-  const HTTP = 'https://stelno.onrender.com';
 
-  /* ── room ── */
-  const r = location.hash.slice(1) || Math.random().toString(36).slice(2);
-  location.hash = r;
+<!-- 1 -->
+<script>
+window.STELNO = window.STELNO || {};
 
-  /* ── UI refs ── */
-  const s         = document.getElementById('status');
-  const prog      = document.getElementById('p');
-  const drop      = document.getElementById('drop');
-  const f         = document.getElementById('f');
-  const cancelBtn = document.getElementById('cancel');
-  const xferInfo  = document.getElementById('xfer-info');
-  const peerDot   = document.getElementById('peer-dot');
-  const roomUrl   = document.getElementById('room-url');
-  const copyBtn   = document.getElementById('copy-btn');
-  const qrBtn     = document.getElementById('qr-btn');
-  const qrPanel   = document.getElementById('qr-panel');
+window.STELNO.WS = 'wss://stelno.onrender.com';
+window.STELNO.HTTP = 'https://stelno.onrender.com';
+window.STELNO.MAX_FALLBACK_SIZE = 100 * 1024 * 1024;
 
-  /* ── populate visible room link immediately ── */
-  roomUrl.textContent = location.href;
+window.STELNO.room = location.hash.slice(1) || Math.random().toString(36).slice(2);
+location.hash = window.STELNO.room;
 
-  function vibrateMobile(ms = 20) {
-    if (navigator.vibrate && /Mobi|Android/i.test(navigator.userAgent)) {
-      navigator.vibrate(ms);
-    }
+window.STELNO.state = {
+  dc: null,
+  pc: null,
+  connected: false,
+  fallbackMode: false,
+  cancelTransfer: false,
+  currentUpload: null,
+  receivedChunks: [],
+  expectedChunks: 0,
+  fileMeta: null,
+  rcvStartTime: 0,
+  fileQueue: [],
+  sendingFile: false,
+  makingOffer: false,
+  polite: Math.random() > 0.5,
+  transferId: null, /* new unique transfer ID for integrity/resume */
+  lastChunkAck: 0, /* last acknowledged chunk */
+  timeoutTimer: null, /* transfer stall timeout */
+  localStream: null,   /* ← NEW */
+  remoteStream: null   /* ← NEW */
+};
+
+window.STELNO.pendingSignals = [];
+
+window.STELNO.vibrateMobile = (ms = 20) => {
+  if (navigator.vibrate && /Mobi|Android/i.test(navigator.userAgent)) navigator.vibrate(ms);
+};
+
+window.STELNO.fmtSpeed = bps => (
+  bps >= 1048576 ? `${(bps / 1048576).toFixed(1)} MB/s` : `${(bps / 1024).toFixed(0)} KB/s`
+);
+
+window.STELNO.fmtETA = sec => {
+  if (!isFinite(sec) || sec < 0) return '—';
+  return sec >= 60 ? `${Math.ceil(sec / 60)}m left` : `${Math.ceil(sec)}s left`;
+};
+
+window.STELNO.shortName = (name, max = 20) => {
+  if (name.length <= max) return name;
+  const ext = name.includes('.') ? '.' + name.split('.').pop() : '';
+  return name.slice(0, max - ext.length - 3) + '...' + ext;
+};
+
+window.STELNO.setPeer = state => {
+  if (window.STELNO.UI?.peerDot) window.STELNO.UI.peerDot.dataset.state = state;
+};
+</script>
+
+
+
+
+
+
+<!-- 2 -->
+<script>
+window.STELNO.UI = {
+  s: document.getElementById('status'),
+  prog: document.getElementById('p'),
+  drop: document.getElementById('drop'),
+  f: document.getElementById('f'),
+  cancelBtn: document.getElementById('cancel'),
+  xferInfo: document.getElementById('xfer-info'),
+  peerDot: document.getElementById('peer-dot'),
+  roomUrl: document.getElementById('room-url'),
+  copyBtn: document.getElementById('copy-btn'),
+  qrBtn: document.getElementById('qr-btn'),
+  qrPanel: document.getElementById('qr-panel'),
+  qrCanvas: document.getElementById('qr-canvas')
+};
+
+window.STELNO.UI.roomUrl.textContent = location.href;
+
+window.STELNO.showCancel = () => {
+  window.STELNO.UI.cancelBtn.style.display = 'inline-block';
+};
+
+window.STELNO.hideCancel = () => {
+  window.STELNO.UI.cancelBtn.style.display = 'none';
+};
+
+window.STELNO.showXferInfo = txt => {
+  window.STELNO.UI.xferInfo.style.display = 'block';
+  window.STELNO.UI.xferInfo.textContent = txt;
+};
+
+window.STELNO.hideXferInfo = () => {
+  window.STELNO.UI.xferInfo.style.display = 'none';
+  window.STELNO.UI.xferInfo.textContent = '';
+};
+
+window.STELNO.UI.copyBtn.onclick = async e => {
+  e.stopPropagation();
+  window.STELNO.vibrateMobile(20);
+  try {
+    await navigator.clipboard.writeText(location.href);
+    window.STELNO.UI.copyBtn.textContent = '✓';
+    window.STELNO.UI.s.textContent = 'Link copied ✓';
+    setTimeout(() => {
+      window.STELNO.UI.copyBtn.textContent = 'Copy';
+    }, 1600);
+  } catch {}
+};
+
+window.STELNO.UI.qrBtn.onclick = e => {
+  e.stopPropagation();
+  window.STELNO.vibrateMobile(20);
+
+  window.STELNO.UI.qrPanel.classList.toggle('open');
+
+  if (window.STELNO.UI.qrPanel.classList.contains('open')) {
+    window.STELNO.UI.qrCanvas.innerHTML = '';
+
+    new QRCode(window.STELNO.UI.qrCanvas, {
+      text: location.href,
+      width: 148,
+      height: 148,
+      colorDark: '#00ffff',
+      colorLight: '#111111'
+    });
+  }
+};
+</script>
+
+
+
+
+
+
+
+<!-- 3 -->
+<script>
+window.STELNO.abortTransfer = (msg = 'Transfer cancelled ✕', notifyPeer = true) => {
+  window.STELNO.state.cancelTransfer = true;
+  clearTimeout(window.STELNO.state.timeoutTimer);
+
+  if (window.STELNO.state.currentUpload) {
+    window.STELNO.state.currentUpload.abort();
+    window.STELNO.state.currentUpload = null;
   }
 
-  /* ── dedicated Copy button ── */
-  /* copy button */
-  copyBtn.onclick = async e => {
-    e.stopPropagation();
-    vibrateMobile(20); /* vibration only on mobile */
+  window.STELNO.state.receivedChunks = [];
+  window.STELNO.state.expectedChunks = 0;
+  window.STELNO.state.fileMeta = null;
+  window.STELNO.state.transferId = null;
+
+  window.STELNO.UI.prog.value = 0;
+  window.STELNO.UI.prog.style.display = 'none';
+  window.STELNO.hideCancel();
+  window.STELNO.hideXferInfo();
+  window.STELNO.UI.s.textContent = msg;
+
+  if (notifyPeer && window.STELNO.state.dc?.readyState === 'open') {
+    try { window.STELNO.state.dc.send(JSON.stringify({ cancel: true })); } catch {}
+  }
+};
+
+window.STELNO.enqueueFile = file => {
+  if (!file) return;
+  window.STELNO.state.fileQueue.push(file);
+  window.STELNO.processQueue();
+};
+
+window.STELNO.processQueue = async () => {
+  if (window.STELNO.state.sendingFile || !window.STELNO.state.fileQueue.length) return;
+  window.STELNO.state.sendingFile = true;
+  try { await window.STELNO.sendFile(window.STELNO.state.fileQueue.shift()); }
+  finally { window.STELNO.state.sendingFile = false; window.STELNO.processQueue(); }
+};
+
+window.STELNO.setupDC = dc => {
+  if (!dc) return;
+  window.STELNO.UI.drop.style.pointerEvents = 'none';
+  window.STELNO.UI.drop.style.opacity = 0.3;
+
+  dc.onopen = () => {
+    window.STELNO.state.connected = true;
+    window.STELNO.state.fallbackMode = false;
+    window.STELNO.UI.s.textContent = 'Direct connection ⚡';
+    window.STELNO.setPeer('connected');
+    window.STELNO.UI.drop.style.pointerEvents = '';
+    window.STELNO.UI.drop.style.opacity = 1;
+    window.STELNO.UI.qrPanel.classList.remove('open'); // ← add this
+  };
+
+  dc.onclose = () => {
+    window.STELNO.state.connected = false;
+    window.STELNO.setPeer('waiting');
+    window.STELNO.UI.drop.style.pointerEvents = 'none';
+    window.STELNO.UI.drop.style.opacity = 0.3;
+    /* attempt reconnect */
+    setTimeout(() => { if (!window.STELNO.state.connected) window.STELNO.initPeer(); }, 1000);
+  };
+
+  dc.onerror = () => { window.STELNO.state.connected = false; };
+
+  dc.onmessage = async e => {
     try {
-      await navigator.clipboard.writeText(location.href);
-      copyBtn.textContent = '✓';
-      s.textContent = 'Link copied ✓';
-      setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1600);
-    } catch {}
+      if (typeof e.data === 'string') {
+        const d = JSON.parse(e.data);
+        if (d.cancel) { window.STELNO.abortTransfer('Peer cancelled transfer ✕', false); return; }
+
+        window.STELNO.state.fileMeta = d;
+        window.STELNO.state.receivedChunks = [];
+        window.STELNO.state.expectedChunks = d.chunks;
+        window.STELNO.state.transferId = d.transferId || Math.random().toString(36).slice(2);
+        window.STELNO.state.rcvStartTime = Date.now();
+        window.STELNO.state.cancelTransfer = false;
+        window.STELNO.UI.prog.value = 0;
+        window.STELNO.UI.prog.style.display = 'block';
+        window.STELNO.showCancel();
+        window.STELNO.UI.s.textContent = `Receiving ${window.STELNO.shortName(d.name)} via P2P ⚡`;
+        return;
+      }
+
+      if (window.STELNO.state.cancelTransfer) return;
+
+      window.STELNO.state.receivedChunks.push(e.data);
+      window.STELNO.UI.prog.value = (window.STELNO.state.receivedChunks.length / window.STELNO.state.expectedChunks) * 100;
+
+      const elapsed = (Date.now() - window.STELNO.state.rcvStartTime) / 1000 || 0.001;
+      const rcvBytes = window.STELNO.state.receivedChunks.length * 16 * 1024;
+      const speed = rcvBytes / elapsed;
+      const remaining = ((window.STELNO.state.expectedChunks - window.STELNO.state.receivedChunks.length) * 16 * 1024) / speed;
+      window.STELNO.showXferInfo(`↓ ${window.STELNO.fmtSpeed(speed)}  —  ${window.STELNO.fmtETA(remaining)}`);
+
+      clearTimeout(window.STELNO.state.timeoutTimer);
+      window.STELNO.state.timeoutTimer = setTimeout(() => window.STELNO.abortTransfer('Transfer timed out ⏱', false), 15000);
+
+      if (window.STELNO.state.receivedChunks.length === window.STELNO.state.expectedChunks) {
+        const blob = new Blob(window.STELNO.state.receivedChunks, { type: window.STELNO.state.fileMeta.type });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = window.STELNO.state.fileMeta.name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+
+        window.STELNO.UI.s.textContent = `Received ${window.STELNO.shortName(window.STELNO.state.fileMeta.name)} ✅`;
+        window.STELNO.UI.prog.value = 0;
+        window.STELNO.UI.prog.style.display = 'none';
+        window.STELNO.hideCancel();
+        window.STELNO.hideXferInfo();
+      }
+    } catch (err) { console.error(err); }
   };
+};
 
-  /* QR button */
-  qrBtn.onclick = e => {
-    e.stopPropagation();
-    vibrateMobile(20);
+/* restore sendFile */
+window.STELNO.sendFile = async file => {
+  if (!file) return;
 
-    qrPanel.classList.toggle('open');
+  window.STELNO.state.cancelTransfer = false;
 
-    if (qrPanel.classList.contains('open')) {
-      const el = document.getElementById('qr-canvas');
-      el.innerHTML = ''; /* ← kill previous QR */
+  const chunkSize = 16 * 1024;
+  const buffer = await file.arrayBuffer();
+  const chunks = Math.ceil(buffer.byteLength / chunkSize);
 
-      new window.QRCode(el, {
-        text: location.href,
-        width: 148,
-        height: 148,
-        colorDark: '#00ffff',
-        colorLight: '#111111',
-      });
+  /* generate transferId */
+  const transferId = Math.random().toString(36).slice(2);
+  window.STELNO.state.transferId = transferId;
+
+  window.STELNO.UI.s.textContent = 'Preparing...';
+  window.STELNO.UI.prog.value = 0;
+  window.STELNO.UI.prog.style.display = 'block';
+  window.STELNO.showCancel();
+  window.STELNO.hideXferInfo();
+
+  if (!window.STELNO.state.connected && !window.STELNO.state.fallbackMode) {
+    await new Promise(r => setTimeout(r, 2000));
+  }
+
+  if (window.STELNO.state.cancelTransfer) {
+    window.STELNO.UI.prog.style.display = 'none';
+    window.STELNO.hideCancel();
+    return;
+  }
+
+  window.STELNO.UI.s.textContent = 'Sending...';
+  playSound();
+
+
+  if (window.STELNO.state.connected && !window.STELNO.state.fallbackMode) {
+    window.STELNO.state.dc.send(JSON.stringify({
+      name: file.name,
+      type: file.type,
+      chunks,
+      transferId
+    }));
+
+    let offset = 0;
+    const startTime = Date.now();
+    let lastUI = startTime;
+
+    while (offset < buffer.byteLength) {
+
+      if (window.STELNO.state.cancelTransfer) {
+        window.STELNO.abortTransfer();
+        return;
+      }
+
+      while (window.STELNO.state.dc.bufferedAmount > 16 * chunkSize) {
+        await new Promise(r => setTimeout(r, 50));
+      }
+
+      window.STELNO.state.dc.send(buffer.slice(offset, offset + chunkSize));
+      offset += chunkSize;
+
+      window.STELNO.UI.prog.value = Math.min((offset / buffer.byteLength) * 100, 100);
+
+      const now = Date.now();
+      if (now - lastUI > 300) {
+        const elapsed = (now - startTime) / 1000 || 0.001;
+        const speed = offset / elapsed;
+        const bytesLeft = buffer.byteLength - offset;
+        window.STELNO.showXferInfo(`↑ ${window.STELNO.fmtSpeed(speed)}  —  ${window.STELNO.fmtETA(bytesLeft / speed)}`);
+        lastUI = now;
+      }
     }
-  };
 
-
-  /* ── peer dot helper ── */
-  function setPeer(state) { peerDot.dataset.state = state; }
-
-  /* ── transfer state ── */
-  let cancelTransfer = false;
-  let receivedChunks = [];
-  let expectedChunks = 0;
-  let fileMeta       = null;
-  let rcvStartTime   = 0;
-  let currentUpload  = null; /* fetch controller for fallback */
-
-  /* ── file queue + fallback guard ── */
-  const MAX_FALLBACK_SIZE = 100 * 1024 * 1024; /* 100MB */
-  const fileQueue = [];
-  let sendingFile = false;
-
-  function enqueueFile(file) {
-    if (!file) return;
-    fileQueue.push(file);
-    processQueue();
+    window.STELNO.UI.s.textContent = `Sent ${window.STELNO.shortName(file.name)} via P2P ⚡`;
+    window.STELNO.UI.prog.value = 0;
+    window.STELNO.UI.prog.style.display = 'none';
+    window.STELNO.hideCancel();
+    window.STELNO.hideXferInfo();
+    return;
   }
 
-  async function processQueue() {
-    if (sendingFile || !fileQueue.length) return;
-    sendingFile = true;
-    try {
-      await sendFile(fileQueue.shift());
-    } finally {
-      sendingFile = false;
-      processQueue();
-    }
+  /* fallback unchanged */
+  if (file.size > window.STELNO.MAX_FALLBACK_SIZE) {
+    window.STELNO.UI.s.textContent = 'File too large for fallback ⚠️';
+    window.STELNO.UI.prog.style.display = 'none';
+    window.STELNO.hideCancel();
+    return;
   }
 
-  /* ── UI helpers ── */
-  function showCancel()      { cancelBtn.style.display = 'inline-block'; }
-  function hideCancel()      { cancelBtn.style.display = 'none'; }
-  function showXferInfo(txt) { xferInfo.style.display = 'block'; xferInfo.textContent = txt; }
-  function hideXferInfo()    { xferInfo.style.display = 'none'; xferInfo.textContent = ''; }
+  window.STELNO.UI.s.textContent = 'Uploading... ☁️';
+  window.STELNO.state.currentUpload = new AbortController();
 
-  function fmtSpeed(bps) {
-    return bps >= 1048576
-      ? `${(bps / 1048576).toFixed(1)} MB/s`
-      : `${(bps / 1024).toFixed(0)} KB/s`;
+  try {
+    const res = await fetch(window.STELNO.HTTP, {
+      method: 'POST',
+      body: file,
+      signal: window.STELNO.state.currentUpload.signal
+    });
+
+    const id = await res.text();
+    window.STELNO.sendWS({ file: id });
+    window.STELNO.UI.s.textContent = 'Sent via fallback ☁️';
+
+  } catch {
+    window.STELNO.UI.s.textContent = window.STELNO.state.cancelTransfer
+      ? 'Upload cancelled ✕'
+      : 'Upload failed ❌';
+  } finally {
+    window.STELNO.state.currentUpload = null;
+    window.STELNO.UI.prog.value = 0;
+    window.STELNO.UI.prog.style.display = 'none';
+    window.STELNO.hideCancel();
+    window.STELNO.hideXferInfo();
   }
-  function fmtETA(sec) {
-    if (!isFinite(sec) || sec < 0) return '—';
-    return sec >= 60 ? `${Math.ceil(sec / 60)}m left` : `${Math.ceil(sec)}s left`;
-  }
+};
+</script>
 
-  /* ── cancel handler ── */
-  cancelBtn.onclick = () => {
-    cancelTransfer = true;
-    if (currentUpload) { currentUpload.abort(); currentUpload = null; }
-    receivedChunks = []; expectedChunks = 0; fileMeta = null;
-    prog.value = 0; prog.style.display = 'none';
-    hideCancel(); hideXferInfo();
-    s.textContent = 'Transfer cancelled ✕';
-    /* notify peer */
-    if (dc && dc.readyState === 'open') dc.send(JSON.stringify({ cancel: true }));
-  };
 
-  /* ── WebSocket ── */
-  let dc, connected = false, fallbackMode = false;
-  const ws = new WebSocket(WS);
-  const q  = [];
 
-  const sendWS = d => {
-    const m = JSON.stringify(d);
-    if (ws.readyState === 1) ws.send(m);
-    else q.push(m);
-  };
 
-  ws.onopen = () => {
-    sendWS({ join: r });
-    s.textContent = 'Waiting for peer...';
-    setPeer('waiting');
-    while (q.length) ws.send(q.shift());
-    setInterval(() => { if (!connected) sendWS({ checkPeers: true }); }, 5000);
-  };
 
-  /* ── WebRTC ── */
+
+
+
+
+<!-- 4 -->
+<script>
+window.STELNO.initPeer = () => {
   const pc = new RTCPeerConnection({
-   iceServers: [
-     { urls: 'stun:stun.l.google.com:19302' },
-     {
-       urls: 'turn:stun.cloudflare.com:3478',
-       username: 'b4aae85474d13009d9e71f2a60fee4908f1da1f44ae3dec6d18d046238483e2360225ee6588',
-       credential: 'aba9b169546eb6dcc7bfb1cdf34544cf95b5161d602e365fa7c8342b2e9802fb'
-     }
-   ]
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      {
+        urls: 'turn:stun.cloudflare.com:3478',
+        username: 'b4aae85474d13009d9e71f2a60fee4908f1da1f44ae3dec6d18d046238483e2360225ee6588',
+        credential: 'aba9b169546eb6dcc7bfb1cdf34544cf95b5161d602e365fa7c8342b2e9802fb'
+      }
+    ]
   });
 
-  let makingOffer = false;
-  const polite    = Math.random() > 0.5;
+  window.STELNO.state.pc = pc;
+
+  const restartIceWithBackoff = (attempt = 0) => {
+    try {
+      pc.restartIce();
+    } catch {}
+    if (attempt < 5) setTimeout(() => restartIceWithBackoff(attempt + 1), 1000 * Math.pow(2, attempt));
+  };
 
   pc.oniceconnectionstatechange = () => {
-    if (pc.iceConnectionState === 'failed') {
-      s.textContent = 'Reconnecting... 🔄';
-      try { pc.restartIce(); } catch (err) { console.error('ICE restart:', err); }
-    }
+    if (pc.iceConnectionState === 'failed') restartIceWithBackoff();
   };
 
   pc.onconnectionstatechange = () => {
-    const st = pc.connectionState;
-    if (st === 'failed') {
-      connected = false;
-      setPeer('present');
-      s.textContent = 'Connection failed, reconnecting... 🔄';
-      try { pc.restartIce(); } catch {}
-    }
+    if (pc.connectionState === 'failed') restartIceWithBackoff();
   };
 
-  /* ── data channel setup ── */
-  function setup() {
-    if (!dc) return;
+  pc.onicecandidate = e => { if (e.candidate) window.STELNO.queueSignal({ signal: e.candidate }); };
+  pc.onnegotiationneeded = async () => {
+    if (window.STELNO.state.makingOffer) return; /* ← ADD THIS: drop if we're already mid-offer */
 
-    dc.onopen  = () => {
-      connected = true; fallbackMode = false;
-      s.textContent = 'Direct connection ⚡';
-      setPeer('connected');
-    };
-    dc.onclose = () => { connected = false; setPeer('waiting'); };
-    dc.onerror = () => { connected = false; };
+    try { window.STELNO.state.makingOffer = true; const offer = await pc.createOffer(); await pc.setLocalDescription(offer); window.STELNO.queueSignal({ signal: pc.localDescription }); }
+    finally { window.STELNO.state.makingOffer = false; }
+  };
 
-    dc.onmessage = async e => {
-      try {
-        if (typeof e.data === 'string') {
-          const d = JSON.parse(e.data);
+  pc.ondatachannel = e => { window.STELNO.state.dc = e.channel; window.STELNO.setupDC(e.channel); };
 
-          if (d.cancel) {
-            cancelTransfer = true;
-            if (currentUpload) { currentUpload.abort(); currentUpload = null; }
-            receivedChunks = []; expectedChunks = 0; fileMeta = null;
-            prog.value = 0; prog.style.display = 'none';
-            hideCancel(); hideXferInfo();
-            s.textContent = 'Peer cancelled transfer ✕';
-            return;
-          }
+  /* ── NEW: handle incoming media tracks from remote peer ── */
+  pc.ontrack = e => {
+    /* Always (re)create remoteStream so stale streams don't
+       silently swallow new tracks after renegotiation */
+    if (!window.STELNO.state.remoteStream) {
+      window.STELNO.state.remoteStream = new MediaStream();
+    }
 
-          const meta = d;
-          fileMeta       = meta;
-          receivedChunks = [];
-          expectedChunks = meta.chunks;
-          rcvStartTime   = Date.now();
-          cancelTransfer = false;
-          prog.value = 0; prog.style.display = 'block';
-          showCancel();
-          s.textContent = `Receiving ${shortName(meta.name)} via P2P ⚡`;
-        } else {
-          if (cancelTransfer) return;
-          receivedChunks.push(e.data);
-          prog.value = (receivedChunks.length / expectedChunks) * 100;
+    /* Avoid duplicate track additions on renegotiation */
+    const existing = window.STELNO.state.remoteStream.getTracks();
+    if (!existing.find(t => t.id === e.track.id)) {
+      window.STELNO.state.remoteStream.addTrack(e.track);
+    }
 
-          const elapsed   = (Date.now() - rcvStartTime) / 1000 || 0.001;
-          const rcvBytes  = receivedChunks.length * 16 * 1024;
-          const speed     = rcvBytes / elapsed;
-          const remaining = ((expectedChunks - receivedChunks.length) * 16 * 1024) / speed;
-          showXferInfo(`↓ ${fmtSpeed(speed)}  —  ${fmtETA(remaining)}`);
+    /* Always reassign srcObject — even if the element already had one.
+       This is what actually makes the video appear after renegotiation. */
+    const remoteEl = document.getElementById('stelno-remote');
+    if (remoteEl) {
+      remoteEl.srcObject = window.STELNO.state.remoteStream;
+      remoteEl.play().catch(() => {});
+    }
 
-          if (receivedChunks.length === expectedChunks) {
-            const blob = new Blob(receivedChunks, { type: fileMeta.type });
-            const a    = document.createElement('a');
-            a.href = URL.createObjectURL(blob); a.download = fileMeta.name; a.click();
-            s.textContent = `Received ${shortName(fileMeta.name)} ✅`;
-            prog.value = 0; prog.style.display = 'none';
-            hideCancel(); hideXferInfo();
-          }
-        }
-      } catch (err) { console.error(err); }
+    window.STELNO.onRemoteTrack?.(e.track, window.STELNO.state.remoteStream);
+  };
+  /* ── END NEW ── */
+
+  window.STELNO.state.dc = pc.createDataChannel('f');
+  window.STELNO.setupDC(window.STELNO.state.dc);
+};
+</script>
+
+
+
+
+
+
+
+
+
+
+
+<!-- 4b: media channel helpers -->
+<script>
+window.STELNO.forceRenegotiate = async () => {
+  const pc = window.STELNO.state.pc;
+  if (!pc) return;
+  try {
+    window.STELNO.state.makingOffer = true;
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    window.STELNO.queueSignal({ signal: pc.localDescription });
+  } catch (err) {
+    console.error('STELNO renegotiate:', err);
+  } finally {
+    window.STELNO.state.makingOffer = false;
+  }
+};
+
+/* ── internal: reuse transceivers if they exist, add if not ────────
+   This is the core fix. addTransceiver on a live PC creates new
+   m-lines. On the second startMedia() call we must reuse the
+   existing transceivers via replaceTrack() to keep m-line order
+   stable, which is what WebRTC requires.
+──────────────────────────────────────────────────────────────────── */
+window.STELNO._applyTracksToPC = async (stream) => {
+  const pc = window.STELNO.state.pc;
+  const tracks = stream.getTracks();
+
+  for (const track of tracks) {
+    const kind = track.kind; /* 'audio' or 'video' */
+
+    /* Look for an existing inactive/sendrecv transceiver of same kind
+       that we own (has a sender with a null or stopped track) */
+    const existing = pc.getTransceivers().find(t =>
+      t.receiver.track.kind === kind &&
+      (t.sender.track === null || t.sender.track?.readyState === 'ended') &&
+      t.stopped === false
+    );
+
+    if (existing) {
+      /* Reuse — keeps m-line order intact */
+      await existing.sender.replaceTrack(track);
+      existing.direction = 'sendrecv';
+    } else {
+      /* First time — safe to add */
+      pc.addTransceiver(track, { streams: [stream], direction: 'sendrecv' });
+    }
+  }
+
+  await window.STELNO.forceRenegotiate();
+};
+
+window.STELNO.startMedia = async (constraints = { audio: true, video: true }) => {
+  const pc = window.STELNO.state.pc;
+  if (!pc) throw new Error('STELNO: peer connection not initialised');
+
+  window.STELNO.state.makingOffer = true;
+  window.STELNO.stopMedia({ renegotiate: false });
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+  } catch (err) {
+    window.STELNO.state.makingOffer = false;
+    window.STELNO.UI.s.textContent = 'Camera/mic access denied ❌';
+    throw err;
+  }
+
+  /* Explicitly enable all tracks — macOS Chrome occasionally delivers
+     tracks with enabled=false during the OS permission handshake */
+  stream.getTracks().forEach(t => { t.enabled = true; });
+
+  window.STELNO.state.localStream = stream;
+
+  const localEl = document.getElementById('stelno-local');
+  if (localEl) {
+    localEl.srcObject = stream;
+    localEl.muted = true;
+    localEl.play().catch(() => {});
+  }
+
+  await window.STELNO._applyTracksToPC(stream);
+  return stream;
+};
+
+window.STELNO.startScreen = async () => {
+  const pc = window.STELNO.state.pc;
+  if (!pc) throw new Error('STELNO: peer connection not initialised');
+
+  window.STELNO.state.makingOffer = true; /* ← ADD */
+  window.STELNO.stopScreen({ renegotiate: false });
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { cursor: 'always' },
+      audio: false
+    });
+  } catch (err) {
+    window.STELNO.state.makingOffer = false; /* ← ADD */
+    window.STELNO.UI.s.textContent = 'Screen share cancelled ❌';
+    throw err;
+  }
+
+  /* rest unchanged */
+  window.STELNO.state.screenStream = stream;
+
+  for (const track of stream.getTracks()) {
+    track.onended = () => {
+      window.STELNO.stopScreen({ renegotiate: true });
+      const stopBtn = document.getElementById('btn-stop-media');
+      if (stopBtn) stopBtn.style.display = 'none';
+      const localVid = document.getElementById('stelno-local');
+      if (localVid) { localVid.style.display = 'none'; localVid.srcObject = null; }
+      window.STELNO.UI.s.textContent = 'Screen share ended';
     };
   }
 
-  dc = pc.createDataChannel('f');
-  setup();
+  const localEl = document.getElementById('stelno-local');
+  if (localEl) {
+    localEl.srcObject = stream;
+    localEl.muted = true;
+    localEl.play().catch(() => {});
+  }
 
-  pc.onnegotiationneeded = async () => {
-    try {
-      makingOffer = true;
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      sendWS({ signal: pc.localDescription });
-    } finally { makingOffer = false; }
-  };
+  await window.STELNO._applyTracksToPC(stream);
 
-  pc.ondatachannel = e => { dc = e.channel; setup(); };
-  pc.onicecandidate = e => { if (!e.candidate) return; sendWS({ signal: e.candidate }); };
+  return stream;
+};
 
-  /* ── signaling ── */
-  ws.onmessage = async e => {
-    const d = JSON.parse(e.data);
+/* ── stopMedia ──────────────────────────────────────────────────────
+   replaceTrack(null) + direction='inactive' instead of removeTrack().
+   This keeps m-lines in place — required by WebRTC spec.
+──────────────────────────────────────────────────────────────────── */
+window.STELNO.stopMedia = ({ renegotiate = true } = {}) => {
+  const stream = window.STELNO.state.localStream;
+  if (!stream) return;
 
-    if (d.checkPeers && !connected) {
-      try {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        sendWS({ signal: pc.localDescription });
-      } catch (err) { console.error(err); }
-    }
+  const pc = window.STELNO.state.pc;
 
-    if (d.signal) {
-      if (peerDot.dataset.state === 'waiting') {
-        setPeer('present');
-        s.textContent = 'Peer found, connecting...';
-      }
-
-      const offerCollision =
-        d.signal.type === 'offer' &&
-        (makingOffer || pc.signalingState !== 'stable');
-      const ignoreOffer = !polite && offerCollision;
-      if (ignoreOffer) return;
-
-      if (d.signal.type === 'offer') {
-        await pc.setRemoteDescription(d.signal);
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        sendWS({ signal: pc.localDescription });
-      } else if (d.signal.type === 'answer') {
-        if (pc.signalingState !== 'have-local-offer') return;
-        await pc.setRemoteDescription(d.signal);
-      } else if (d.signal.candidate) {
-        try { await pc.addIceCandidate(d.signal); } catch {}
+  for (const track of stream.getTracks()) {
+    track.stop();
+    if (pc) {
+      const transceiver = pc.getTransceivers().find(t => t.sender.track === track);
+      if (transceiver) {
+        transceiver.sender.replaceTrack(null).catch(() => {});
+        transceiver.direction = 'inactive';
       }
     }
+  }
 
-    if (d.peerJoined && peerDot.dataset.state === 'waiting') {
-      setPeer('present');
-      s.textContent = 'Peer joined the room 👋';
-    }
+  window.STELNO.state.localStream = null;
 
-    if (d.file) {
-      s.textContent = 'Receiving via fallback ☁️';
-      const a = document.createElement('a');
-      a.href = HTTP + '/f/' + d.file; a.download = 'file'; a.click();
+  const localEl = document.getElementById('stelno-local');
+  if (localEl) localEl.srcObject = null;
+
+  if (renegotiate) window.STELNO.forceRenegotiate();
+};
+
+window.STELNO.stopScreen = ({ renegotiate = true } = {}) => {
+  const stream = window.STELNO.state.screenStream;
+  if (!stream) return;
+
+  const pc = window.STELNO.state.pc;
+
+  for (const track of stream.getTracks()) {
+    track.stop();
+    if (pc) {
+      const transceiver = pc.getTransceivers().find(t => t.sender.track === track);
+      if (transceiver) {
+        transceiver.sender.replaceTrack(null).catch(() => {});
+        transceiver.direction = 'inactive';
+      }
     }
+  }
+
+  window.STELNO.state.screenStream = null;
+
+  const localEl = document.getElementById('stelno-local');
+  if (localEl) localEl.srcObject = null;
+
+  if (renegotiate) window.STELNO.forceRenegotiate();
+};
+</script>
+
+
+
+
+
+
+
+
+
+<!-- 5 -->
+<script>
+window.STELNO.initWS = () => {
+  let ws;
+  let retry = 0;
+
+  const connect = () => {
+    ws = new WebSocket(window.STELNO.WS);
+    window.STELNO.ws = ws;
+    const q = [];
+
+    window.STELNO.sendWS = d => {
+      const m = JSON.stringify(d);
+      if (ws.readyState === 1) ws.send(m);
+      else q.push(m);
+    };
+
+    while (window.STELNO.pendingSignals.length) window.STELNO.sendWS(window.STELNO.pendingSignals.shift());
+
+    ws.onopen = () => {
+      retry = 0;
+      window.STELNO.sendWS({ join: window.STELNO.room });
+      window.STELNO.UI.s.textContent = 'Waiting for peer...';
+      window.STELNO.setPeer('waiting');
+      while (q.length) ws.send(q.shift());
+      setInterval(() => { if (!window.STELNO.state.connected) window.STELNO.sendWS({ checkPeers: true }); }, 5000);
+    };
+
+    ws.onmessage = async e => {
+      const d = JSON.parse(e.data);
+      if (d.checkPeers && !window.STELNO.state.connected) {
+        try { const offer = await window.STELNO.state.pc.createOffer(); await window.STELNO.state.pc.setLocalDescription(offer); window.STELNO.sendWS({ signal: window.STELNO.state.pc.localDescription }); } catch (err) { console.error(err); }
+      }
+      if (d.signal) {
+        if (window.STELNO.UI.peerDot.dataset.state === 'waiting') {
+          window.STELNO.setPeer('present');
+          window.STELNO.UI.s.textContent = 'Peer found, connecting...';
+        }
+
+        const offerCollision = d.signal.type === 'offer' && (window.STELNO.state.makingOffer || window.STELNO.state.pc.signalingState !== 'stable');
+        if (!window.STELNO.state.polite && offerCollision) return;
+
+        if (d.signal.type === 'offer') { await window.STELNO.state.pc.setRemoteDescription(d.signal); const answer = await window.STELNO.state.pc.createAnswer(); await window.STELNO.state.pc.setLocalDescription(answer); window.STELNO.sendWS({ signal: window.STELNO.state.pc.localDescription }); }
+        else if (d.signal.type === 'answer') { if (window.STELNO.state.pc.signalingState === 'have-local-offer') await window.STELNO.state.pc.setRemoteDescription(d.signal); }
+        else if (d.signal.candidate) { try { await window.STELNO.state.pc.addIceCandidate(d.signal); } catch {} }
+      }
+
+      if (d.peerJoined && window.STELNO.UI.peerDot.dataset.state === 'waiting') {
+        window.STELNO.setPeer('present');
+        window.STELNO.UI.s.textContent = 'Peer joined the room 👋';
+      }
+
+      if (d.file) {
+        window.STELNO.UI.s.textContent = 'Receiving via fallback ☁️';
+        const a = document.createElement('a');
+        a.href = window.STELNO.HTTP + '/f/' + d.file;
+        a.download = 'file';
+        a.click();
+      }
+    };
+
+    ws.onclose = () => { setTimeout(() => connect(), Math.min(1000 * Math.pow(2, retry++), 30000)); };
+    ws.onerror = () => { ws.close(); };
   };
 
-  /* ── drag / drop / click ── */
-  /*drop.onclick = async () => { try { await navigator.clipboard.writeText(location.href); s.textContent = 'Link copied ✓'; } catch {} };*/
-  drop.onclick = () => {
-      f.click(); /* open file selector */
-  };
+  connect();
+};
+</script>
 
-  drop.ondragover = e => e.preventDefault();
-  drop.ondrop = e => { e.preventDefault(); for (const file of e.dataTransfer.files) enqueueFile(file); };
-  f.onchange = () => { for (const file of f.files) enqueueFile(file); };
 
-  /* ── paste support ── */
-  document.addEventListener('paste', e => {
-    const items = e.clipboardData?.items || [];
-    for (const item of items) if (item.kind === 'file') enqueueFile(item.getAsFile());
+
+
+
+<!-- 6 -->
+<script>
+window.STELNO.queueSignal = d => {
+  if (window.STELNO.ws && window.STELNO.ws.readyState === 1) {
+    window.STELNO.ws.send(JSON.stringify(d));
+  } else {
+    window.STELNO.pendingSignals.push(d);
+  }
+};
+</script>
+
+
+
+<!-- 7 -->
+<script>
+window.STELNO.initPeer();
+window.STELNO.initWS();
+
+window.STELNO.UI.cancelBtn.onclick = () => window.STELNO.abortTransfer('Transfer cancelled ✕', true);
+
+window.STELNO.UI.drop.onclick = e => { if (window.STELNO.state.connected) window.STELNO.UI.f.click(); };
+window.STELNO.UI.drop.ondragover = e => e.preventDefault();
+window.STELNO.UI.drop.ondrop = e => {
+  e.preventDefault();
+  if (!window.STELNO.state.connected) return;
+  for (const file of e.dataTransfer.files) window.STELNO.enqueueFile(file);
+};
+
+window.STELNO.UI.f.onchange = () => {
+  if (!window.STELNO.state.connected) return;
+  for (const file of window.STELNO.UI.f.files) window.STELNO.enqueueFile(file);
+};
+
+document.addEventListener('paste', e => {
+  if (!window.STELNO.state.connected) return;
+  const items = e.clipboardData?.items || [];
+  for (const item of items) { if (item.kind === 'file') window.STELNO.enqueueFile(item.getAsFile()); }
+});
+
+setTimeout(() => {
+  if (!window.STELNO.state.connected) {
+    window.STELNO.state.fallbackMode = true;
+    window.STELNO.UI.s.textContent = 'Using secure fallback ☁️';
+  }
+}, 30000);
+
+window.addEventListener('beforeunload', () => {
+  window.STELNO.abortTransfer('Page unloaded ✕', false);
+});
+window.addEventListener('pagehide', () => {
+  window.STELNO.abortTransfer('Page hidden ✕', false);
+});
+
+/* ── media controls ── */
+const mediaBar  = document.getElementById('media-bar');
+const btnCam    = document.getElementById('btn-cam');
+const btnMic    = document.getElementById('btn-mic');
+const btnScreen = document.getElementById('btn-screen');
+const btnStop   = document.getElementById('btn-stop-media');
+const localVid  = document.getElementById('stelno-local');
+const remoteVid = document.getElementById('stelno-remote');
+
+/* ── Route incoming audio to dedicated <audio> element ──────────────
+   ontrack in script 4 assigns to stelno-remote (video, inside hidden
+   video-row). Some browsers block audio from hidden video elements.
+   The onRemoteTrack hook fires after every ontrack — we use it to
+   also pipe audio into a standalone <audio> element that is never
+   hidden and has no autoplay visibility restriction.
+──────────────────────────────────────────────────────────────────── */
+window.STELNO.onRemoteTrack = (track, stream) => {
+  if (track.kind === 'audio') {
+    const audioEl = document.getElementById('stelno-remote-audio');
+    if (audioEl) { audioEl.srcObject = stream; audioEl.play().catch(() => {}); }
+  }
+};
+
+/* ── waveform ── */
+let _waveFrame = null;
+let _waveACtx  = null;
+
+function startWaveform(stream) {
+  stopWaveform();
+  const canvas = document.getElementById('audio-wave');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  _waveACtx = new AudioContext();
+
+  /* ── macOS Chrome fix ───────────────────────────────────────────
+     AudioContext starts suspended if created outside a user gesture
+     on some Chrome versions. The button click IS a gesture but the
+     async getUserMedia await can lose that gesture context on macOS.
+     Explicitly resume() to guarantee it runs.
+  ──────────────────────────────────────────────────────────────── */
+  _waveACtx.resume().catch(() => {});
+
+  const analyser = _waveACtx.createAnalyser();
+  analyser.fftSize = 512;
+  _waveACtx.createMediaStreamSource(stream).connect(analyser);
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+
+  /* If the track starts muted (macOS timing), wait for unmute
+     then reconnect the source so the waveform isn't flat */
+  stream.getAudioTracks().forEach(track => {
+    if (track.muted) {
+      track.onunmute = () => {
+        track.onunmute = null;
+        try {
+          _waveACtx.createMediaStreamSource(stream).connect(analyser);
+        } catch {}
+      };
+    }
   });
 
-  /* ── fallback timer ── */
-  setTimeout(() => {
-    if (!connected) { fallbackMode = true; s.textContent = 'Using secure fallback ☁️'; }
-  }, 30000);
-
-  /* ── chunked P2P send ── */
-  async function sendFile(file) {
-    if (!file) return;
-
-    cancelTransfer = false;
-    const chunkSize = 16 * 1024;
-    const buffer    = await file.arrayBuffer();
-    const chunks    = Math.ceil(buffer.byteLength / chunkSize);
-
-    s.textContent = 'Preparing...';
-    prog.value = 0; prog.style.display = 'block';
-    showCancel(); hideXferInfo();
-
-    if (!connected && !fallbackMode) await new Promise(r => setTimeout(r, 2000));
-    if (cancelTransfer) { prog.style.display = 'none'; hideCancel(); return; }
-
-    s.textContent = 'Sending...';
-    playSound();
-
-    if (connected && !fallbackMode) {
-      dc.send(JSON.stringify({ name: file.name, type: file.type, chunks }));
-      let offset    = 0;
-      let startTime = Date.now();
-      let lastUI    = startTime;
-
-      while (offset < buffer.byteLength) {
-        if (cancelTransfer) { prog.value = 0; prog.style.display = 'none'; hideCancel(); hideXferInfo(); s.textContent = 'Transfer cancelled ✕'; return; }
-        while (dc.bufferedAmount > 16 * chunkSize) await new Promise(r => setTimeout(r, 50));
-        dc.send(buffer.slice(offset, offset + chunkSize));
-        offset += chunkSize;
-        prog.value = Math.min((offset / buffer.byteLength) * 100, 100);
-
-        const now = Date.now();
-        if (now - lastUI > 300) {
-          const elapsed   = (now - startTime) / 1000 || 0.001;
-          const speed     = offset / elapsed;
-          const bytesLeft = buffer.byteLength - offset;
-          showXferInfo(`↑ ${fmtSpeed(speed)}  —  ${fmtETA(bytesLeft / speed)}`);
-          lastUI = now;
-        }
-      }
-
-      s.textContent = `Sent ${shortName(file.name)} via P2P ⚡`;
-      prog.value = 0; prog.style.display = 'none';
-      hideCancel(); hideXferInfo();
-
-    } else {
-      if (file.size > MAX_FALLBACK_SIZE) { s.textContent = 'File too large for fallback ⚠️'; prog.value = 0; prog.style.display = 'none'; hideCancel(); hideXferInfo(); return; }
-
-      s.textContent = 'Uploading... ☁️';
-      currentUpload = new AbortController();
-      try {
-        const res = await fetch(HTTP, { method:'POST', body:file, signal:currentUpload.signal });
-        const id  = await res.text();
-        sendWS({ file: id });
-        s.textContent = 'Sent via fallback ☁️';
-      } catch {
-        s.textContent = cancelTransfer ? 'Upload cancelled ✕' : 'Upload failed ❌';
-      } finally { currentUpload = null; }
-      prog.value = 0; prog.style.display = 'none';
-      hideCancel(); hideXferInfo();
+  function draw() {
+    _waveFrame = requestAnimationFrame(draw);
+    analyser.getByteTimeDomainData(buf);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#0ff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    const sw = canvas.width / buf.length;
+    for (let i = 0; i < buf.length; i++) {
+      const y = (buf[i] / 128) * (canvas.height / 2);
+      i === 0 ? ctx.moveTo(0, y) : ctx.lineTo(i * sw, y);
     }
+    ctx.stroke();
   }
+  draw();
+}
 
-  function shortName(name, max = 20) {
-    if (name.length <= max) return name;
-    const ext = name.includes('.') ? '.' + name.split('.').pop() : '';
-    return name.slice(0, max - ext.length - 3) + '...' + ext;
-  }
-  </script>
+function stopWaveform() {
+  if (_waveFrame) { cancelAnimationFrame(_waveFrame); _waveFrame = null; }
+  if (_waveACtx)  { _waveACtx.close().catch(() => {}); _waveACtx = null; }
+  const canvas = document.getElementById('audio-wave');
+  if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+}
 
-
-
-<script>
-  function playSound() {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const master = ctx.createGain();
-    master.gain.setValueAtTime(0.0, ctx.currentTime);
-    master.gain.linearRampToValueAtTime(0.75, ctx.currentTime + 0.05);
-    master.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 3.2);
-    master.connect(ctx.destination);
-
-    const bufLen = ctx.sampleRate * 3.5;
-    const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for(let i=0;i<bufLen;i++) data[i]=Math.random()*2-1;
-    const noise = ctx.createBufferSource(); noise.buffer = buf;
-    const bandpass = ctx.createBiquadFilter();
-    bandpass.type = 'bandpass';
-    bandpass.frequency.setValueAtTime(200, ctx.currentTime);
-    bandpass.frequency.exponentialRampToValueAtTime(4000, ctx.currentTime+1.0);
-    bandpass.frequency.exponentialRampToValueAtTime(800, ctx.currentTime+2.0);
-    bandpass.Q.value = 0.8;
-    const whooshGain = ctx.createGain();
-    whooshGain.gain.setValueAtTime(1.2, ctx.currentTime);
-    whooshGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+3.0);
-    noise.connect(bandpass); bandpass.connect(whooshGain); whooshGain.connect(master);
-    noise.start(); noise.stop(ctx.currentTime+3.5);
-
-    const rumble = ctx.createOscillator(); rumble.type = 'sawtooth';
-    rumble.frequency.setValueAtTime(40, ctx.currentTime);
-    rumble.frequency.exponentialRampToValueAtTime(180, ctx.currentTime+0.6);
-    rumble.frequency.exponentialRampToValueAtTime(60, ctx.currentTime+2.5);
-    const rumbleFilter = ctx.createBiquadFilter();
-    rumbleFilter.type = 'lowpass'; rumbleFilter.frequency.value = 300;
-    const rumbleGain = ctx.createGain();
-    rumbleGain.gain.setValueAtTime(0.9, ctx.currentTime);
-    rumbleGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+2.8);
-    rumble.connect(rumbleFilter); rumbleFilter.connect(rumbleGain); rumbleGain.connect(master);
-    rumble.start(); rumble.stop(ctx.currentTime+3.0);
-
-    const whine = ctx.createOscillator(); whine.type = 'sine';
-    whine.frequency.setValueAtTime(300, ctx.currentTime);
-    whine.frequency.exponentialRampToValueAtTime(3200, ctx.currentTime+0.9);
-    whine.frequency.exponentialRampToValueAtTime(200, ctx.currentTime+1.8);
-    const whineGain = ctx.createGain();
-    whineGain.gain.setValueAtTime(0.0, ctx.currentTime);
-    whineGain.gain.linearRampToValueAtTime(0.4, ctx.currentTime+0.3);
-    whineGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+2.2);
-    whine.connect(whineGain); whineGain.connect(master);
-    whine.start(); whine.stop(ctx.currentTime+2.5);
-
-    const crackBuf = ctx.createBuffer(1, ctx.sampleRate*0.15, ctx.sampleRate);
-    const crackData = crackBuf.getChannelData(0);
-    for(let i=0;i<crackData.length;i++) crackData[i]=(Math.random()*2-1)*Math.exp(-i/(ctx.sampleRate*0.02));
-    const crack = ctx.createBufferSource(); crack.buffer = crackBuf;
-    const crackGain = ctx.createGain(); crackGain.gain.value = 1.5;
-    crack.connect(crackGain); crackGain.connect(master);
-    crack.start(ctx.currentTime+0.05);
-    setTimeout(()=>ctx.close(), 4000);
-  }
-</script>
-
-
-<script>
-  /* Haptic feedback for mobile */
-  const haptic = (pattern = [40]) => {
-    if ('vibrate' in navigator) navigator.vibrate(pattern);
+/* Show media bar only once data channel opens */
+const _origSetupDC = window.STELNO.setupDC.bind(window.STELNO);
+window.STELNO.setupDC = dc => {
+  _origSetupDC(dc);
+  const _origOpen = dc.onopen;
+  dc.onopen = e => {
+    _origOpen?.(e);
+    mediaBar.style.display = 'flex';
   };
-  document.getElementById('drop').addEventListener('click',    () => haptic([10]));
-  document.getElementById('drop').addEventListener('dragover', () => haptic([5]));
-  document.getElementById('drop').addEventListener('drop',     () => haptic([10, 50, 10]));
-  document.getElementById('f').addEventListener('change',      () => haptic([10, 50, 10]));
+};
+
+function showMediaUI() {
+  document.getElementById('video-row').style.display = 'flex';
+  btnStop.style.display = 'inline-block';
+}
+
+function showAudioUI(stream) {
+  document.getElementById('audio-row').style.display = 'flex'; /* waveform row only — no video boxes */
+  btnStop.style.display = 'inline-block';
+  startWaveform(stream);
+}
+
+btnCam.onclick = async () => {
+  try {
+    await window.STELNO.startMedia({ audio: true, video: true });
+    showMediaUI();
+  } catch {}
+};
+
+btnMic.onclick = async () => {
+  try {
+    const stream = await window.STELNO.startMedia({ audio: true, video: false });
+    showAudioUI(stream); /* ← waveform, not video-row */
+  } catch {}
+};
+
+btnScreen.onclick = async () => {
+  try {
+    await window.STELNO.startScreen();
+    showMediaUI();
+  } catch {}
+};
+
+btnStop.onclick = () => {
+  window.STELNO.stopMedia();
+  window.STELNO.stopScreen();
+  stopWaveform();
+  document.getElementById('video-row').style.display = 'none';
+  document.getElementById('audio-row').style.display = 'none';
+  btnStop.style.display = 'none';
+  const audioEl = document.getElementById('stelno-remote-audio');
+  if (audioEl) audioEl.srcObject = null;
+};
 </script>
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- 8 -->
+<script>
+function playSound() {
+  const c=new (window.AudioContext||window.webkitAudioContext)();
+  const m=c.createGain(); /* master output */
+  m.gain.setValueAtTime(0, c.currentTime);
+  m.gain.linearRampToValueAtTime(0.75, c.currentTime+0.05);
+  m.gain.exponentialRampToValueAtTime(0.001, c.currentTime+3.2);
+  m.connect(c.destination);
+
+  /* whoosh noise */
+  const b=c.createBuffer(1, c.sampleRate*3.5, c.sampleRate);
+  const d=b.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+  const n=c.createBufferSource(); n.buffer=b;
+  const f=c.createBiquadFilter(); f.type='bandpass';
+  f.frequency.setValueAtTime(200,c.currentTime);
+  f.frequency.exponentialRampToValueAtTime(4000,c.currentTime+1);
+  f.frequency.exponentialRampToValueAtTime(800,c.currentTime+2);
+  f.Q.value=0.8;
+  const g=c.createGain(); g.gain.setValueAtTime(1.2,c.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+3);
+  n.connect(f); f.connect(g); g.connect(m); n.start(); n.stop(c.currentTime+3.5);
+
+  /* rumble */
+  const r=c.createOscillator(); r.type='sawtooth';
+  r.frequency.setValueAtTime(40,c.currentTime);
+  r.frequency.exponentialRampToValueAtTime(180,c.currentTime+0.6);
+  r.frequency.exponentialRampToValueAtTime(60,c.currentTime+2.5);
+  const rf=c.createBiquadFilter(); rf.type='lowpass'; rf.frequency.value=300;
+  const rg=c.createGain(); rg.gain.setValueAtTime(0.9,c.currentTime);
+  rg.gain.exponentialRampToValueAtTime(0.001,c.currentTime+2.8);
+  r.connect(rf); rf.connect(rg); rg.connect(m); r.start(); r.stop(c.currentTime+3);
+
+  /* whine */
+  const w=c.createOscillator(); w.type='sine';
+  w.frequency.setValueAtTime(300,c.currentTime);
+  w.frequency.exponentialRampToValueAtTime(3200,c.currentTime+0.9);
+  w.frequency.exponentialRampToValueAtTime(200,c.currentTime+1.8);
+  const wg=c.createGain(); wg.gain.setValueAtTime(0,c.currentTime);
+  wg.gain.linearRampToValueAtTime(0.4,c.currentTime+0.3);
+  wg.gain.exponentialRampToValueAtTime(0.001,c.currentTime+2.2);
+  w.connect(wg); wg.connect(m); w.start(); w.stop(c.currentTime+2.5);
+
+  /* crack */
+  const cb=c.createBuffer(1,c.sampleRate*0.15,c.sampleRate);
+  const cd=cb.getChannelData(0);
+  for(let i=0;i<cd.length;i++) cd[i]=(Math.random()*2-1)*Math.exp(-i/(c.sampleRate*0.02));
+  const crack=c.createBufferSource(); crack.buffer=cb;
+  const cg=c.createGain(); cg.gain.value=1.5;
+  crack.connect(cg); cg.connect(m); crack.start(c.currentTime+0.05);
+
+  setTimeout(()=>c.close(),4000); /* cleanup */
+}
+</script>
+
+
+
+
+
+
+
+
+
+<!-- 9 -->
+<script type="module">
+/* Haptic feedback for mobile */
+const h = p => navigator.vibrate?.(p);
+['click','dragover','drop'].forEach(e =>
+  document.getElementById('drop')?.addEventListener(e,
+    () => h(e==='dragover'?[5]:e==='drop'?[10,50,10]:[10])
+  )
+);
+document.getElementById('f')?.addEventListener('change', () => h([10,50,10]));
+</script>
+
+
+
+
+
+
+
+
+
+
+<!-- 10 -->
 <script>
   function initTranslate() {
     translate.language.setLocal('english');
@@ -1076,6 +1698,15 @@ progress::-moz-progress-bar{
     }, 10);
   }
 </script>
+
+
+
+
+
+
+
+
+<!-- 11 -->
 <script>
   const _log = console.log;
   console.log = (...args) => {
@@ -1083,28 +1714,35 @@ progress::-moz-progress-bar{
     _log(...args);
   };
 </script>
+
+
+
+
+
+
+
+<!-- 12 -->
 <script
   src="https://cdn.jsdelivr.net/gh/xnx3/translate@master/translate.js/translate.js"
   onload="initTranslate()"
 ></script>
 
+
+
+
+
+
+
+
+
+
+<!-- 13 -->
 <script>
-  const pill  = document.getElementById('info-pill');
-  const panel = document.getElementById('info-panel');
+const p=document.getElementById('info-pill'), n=document.getElementById('info-panel');
 
-  pill.onclick = e => {
-    e.stopPropagation(); /* avoid accidental propagation */
-    panel.classList.toggle('show');
-  };
-
-  /* hide info panel if clicked outside */
-  document.addEventListener('click', e => {
-    if (!panel.contains(e.target) && !pill.contains(e.target)) {
-      panel.classList.remove('show');
-    }
-  });
-
+document.addEventListener('click', e => p.contains(e.target) ? n.classList.toggle('show') : n.contains(e.target) || n.classList.remove('show'));
 </script>
+
 
 
 </body>
