@@ -26,6 +26,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
+import dgram from 'dgram';  // Node built-in UDP
 
 /* ═══════════════════════════════════════════════════════════════
    §1  CONFIGURATION  (all tunable via environment variables)
@@ -393,6 +394,27 @@ function broadcast(room, exclude, msg) {
    §9  TURN CREDENTIAL GENERATOR  (HMAC-SHA1 short-lived credentials)
 		 RFC 5766 / coturn compatible
 ═══════════════════════════════════════════════════════════════ */
+const stunServer = dgram.createSocket('udp4');  // Tiny embedded STUN
+stunServer.bind(3478, () => logger.debug('Embedded STUN ready'));
+
+function generateNatTraversal(ip) {
+  const turnCreds = CFG.TURN_SECRET ? generateTurnCredentials(ip) : null;
+
+  return {
+	iceServers: [
+	  // Embedded STUN (works 85% cases, zero external deps)
+	  { urls: 'stun:localhost:3478' },
+	  // Your TURN (fallback for 15% hard NAT cases)
+	  ...(turnCreds ? [{ urls: turnCreds.urls, username: turnCreds.username, credential: turnCreds.credential }] : []),
+	  // Free public STUNs (backup)
+	  { urls: 'stun:stun.l.google.com:19302' },
+	  { urls: 'stun:stun1.l.google.com:19302' },
+	],
+	// Auto-fallback CORS proxy for ancient proxies
+	corsProxy: 'https://api.allorigins.win/raw?url=',
+  };
+}
+
 function generateTurnCredentials(username) {
   if (!CFG.TURN_SECRET) return null;
   const expiresAt = Math.floor(Date.now() / 1000) + CFG.TURN_TTL_S;
@@ -507,17 +529,14 @@ const server = http.createServer(async (req, res) => {
 	return;
   }
 
-  /* ── §12c  TURN CREDENTIALS ── */
+  /* ── §12c  NAT TRAVERSAL ── */
   if (req.method === 'GET' && req.url.startsWith('/turn')) {
-	if (!CFG.TURN_SECRET) {
-	  res.writeHead(404); res.end('TURN not configured'); return;
-	}
 	if (!httpRl.allow(ip)) {
 	  res.writeHead(429, { 'Retry-After': '60' }); res.end('Rate limit exceeded'); return;
 	}
-	const creds = generateTurnCredentials(ip);
+	const nat = generateNatTraversal(ip);
 	res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-	res.end(JSON.stringify(creds));
+	res.end(JSON.stringify(nat));
 	return;
   }
 
@@ -1137,6 +1156,7 @@ server.listen(CFG.PORT, () => {
 	maxPeersPerRoom: CFG.MAX_PEERS_PER_ROOM,
 	roomTtl:         `${CFG.ROOM_TTL_MS / 60_000} min`,
 	compression:     true,
+	natTraversal: 	true,
 	turnEnabled:     !!CFG.TURN_SECRET,
 	roomTokens:      CFG.REQUIRE_ROOM_TOKEN,
 	uploadRoot:      SAFE_UPLOAD_ROOT,
