@@ -11,11 +11,12 @@ import path from 'path';
 import crypto from 'crypto';
 
 if (process.env.NODE_ENV !== 'development' && !process.env.CLUSTER_DISABLE) {
-  const cluster = require('cluster');
-  const numCPUs = require('os').cpus().length;
-  if (cluster.isPrimary) {
-	for (let i = 0; i < numCPUs; i++) cluster.fork();
-	cluster.on('exit', () => cluster.fork());
+  const cluster = await import('node:cluster');
+  const os = await import('node:os');
+
+  if (cluster.default.isPrimary) {
+	for (let i = 0; i < os.default.cpus().length; i++) cluster.default.fork();
+	cluster.default.on('exit', () => cluster.default.fork());
   } else {
 
 /* ═══════════════════════════════════════════════════════════════
