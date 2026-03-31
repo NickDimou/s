@@ -81,34 +81,6 @@ const logger = {
   debug: (msg, meta) => log(3, msg, meta),
 };
 
-/* 🔥 UNBELIEVABLE UPGRADE: Graceful Render Restarts (Zero Downtime) */
-let restartTrigger = false;
-async function triggerGracefulRestart() {
-  if (restartTrigger || shuttingDown) return;
-  restartTrigger = true;
-  logger.info('Graceful restart triggered (Render deploy)');
-
-  // 1. Reject new uploads/connections immediately
-  shuttingDown = true;
-
-  // 2. Give 10s for active rooms/uploads to finish
-  setTimeout(async () => {
-	// 3. Nuke EVERYTHING instantly (frees 100% disk)
-	for (const [id, u] of pendingUploads) {
-	  clearTimeout(u?.timer); try { u?.stream?.destroy(); } catch {}
-	  await safeUnlink(u?.path); await safeRm(u?.dir);
-	}
-	for (const id of files.keys()) await releaseFile(id);
-	rooms.clear();
-	pendingUploads.clear();
-
-	logger.info('Disk fully cleared - ready for restart');
-
-	// 4. Render will restart us in ~2s - perfect timing
-	process.exit(0);
-  }, 10_000);
-}
-
 /* NEW: Get disk usage % */
 function getDiskUsage() {
   try {
@@ -582,36 +554,36 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* ── §12i  RENDER DISK CLEANUP ── NEW #16 */
-	if (req.method === 'POST' && req.url === '/cleanup') {
-	  const diskPct = getDiskUsage();
-	  if (diskPct < CFG.DISK_USAGE_MB) {
-		res.writeHead(200, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify({ status: 'clean', diskPct, action: 'noop' }));
-		return;
-	  }
-
-	  const now = Date.now();
-	  let cleaned = 0;
-	  for (const [id, f] of files) {
-		if (now - f.createdAt > CFG.ROOM_TTL_MS) {
-		  await releaseFile(id);
-		  cleaned++;
-		}
-	  }
-	  for (const [id, u] of pendingUploads) {
-		clearTimeout(u.timer);
-		await safeUnlink(u.path);
-		await safeRm(u.dir);
-		pendingUploads.delete(id);
-	  }
-	  rooms.clear();
-	  triggerGracefulRestart();  // 🔥 NEW: Zero-downtime deploy
-
-	  logger.info('Render disk cleanup', { cleaned, diskBefore: diskPct, diskAfter: getDiskUsage() });
+  if (req.method === 'POST' && req.url === '/cleanup') {
+	const diskPct = getDiskUsage();
+	if (diskPct < CFG.DISK_USAGE_MB) {
 	  res.writeHead(200, { 'Content-Type': 'application/json' });
-	  res.end(JSON.stringify({ status: 'cleaned', filesCleaned: cleaned, diskPct: getDiskUsage() }));
+	  res.end(JSON.stringify({ status: 'clean', diskPct, action: 'noop' }));
 	  return;
 	}
+
+	const now = Date.now();
+	let cleaned = 0;
+	for (const [id, f] of files) {
+	  if (now - f.createdAt > CFG.ROOM_TTL_MS) {
+		await releaseFile(id);
+		cleaned++;
+	  }
+	}
+	for (const [id, u] of pendingUploads) {
+	  clearTimeout(u.timer);
+	  await safeUnlink(u.path);
+	  await safeRm(u.dir);
+	  pendingUploads.delete(id);
+	}
+	rooms.clear();
+	wss.close(() => process.exit(0));
+
+	logger.info('Render disk cleanup', { cleaned, diskBefore: diskPct, diskAfter: getDiskUsage() });
+	res.writeHead(200, { 'Content-Type': 'application/json' });
+	res.end(JSON.stringify({ status: 'cleaned', filesCleaned: cleaned, diskPct: getDiskUsage() }));
+	return;
+  }
 
 	/* ── §12j  DISK STATUS ── NEW #16 */
 	if (req.method === 'GET' && req.url === '/disk') {
