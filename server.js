@@ -394,17 +394,18 @@ function broadcast(room, exclude, msg) {
    §9  TURN CREDENTIAL GENERATOR  (HMAC-SHA1 short-lived credentials)
 		 RFC 5766 / coturn compatible
 ═══════════════════════════════════════════════════════════════ */
-const stunServer = dgram.createSocket('udp4');  // Tiny embedded STUN
-stunServer.bind(3478, () => logger.debug('Embedded STUN ready'));
+// Embedded STUN disabled on Render (needs root privs) - using public STUNs instead
+logger.debug('Using public STUN servers (embedded STUN needs root)');
 
 function generateNatTraversal(ip) {
   const turnCreds = CFG.TURN_SECRET ? generateTurnCredentials(ip) : null;
 
   return {
 	iceServers: [
-	  // Embedded STUN (works 85% cases, zero external deps)
-	  { urls: 'stun:localhost:3478' },
-	  // Your TURN (fallback for 15% hard NAT cases)
+	  // Reliable public STUNs (99% uptime)
+		{ urls: 'stun:stun.l.google.com:19302' },
+		{ urls: 'stun:stun1.l.google.com:19302' },
+		// Your TURN (fallback for hard NAT cases)
 	  ...(turnCreds ? [{ urls: turnCreds.urls, username: turnCreds.username, credential: turnCreds.credential }] : []),
 	  // Free public STUNs (backup)
 	  { urls: 'stun:stun.l.google.com:19302' },
@@ -787,8 +788,7 @@ const server = http.createServer(async (req, res) => {
 	return;
   }
 
-  // ADD THIS LINE (before /f/ download handler)
-  cleanupEmptyRoom(id.split('?')[0].split('#')[0]);
+
 
   /* ── §12f  DOWNLOAD ── */
   if (req.method === 'GET' && req.url.startsWith('/f/')) {
