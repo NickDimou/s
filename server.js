@@ -10,22 +10,6 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 
-if (process.env.NODE_ENV !== 'development' && !process.env.CLUSTER_DISABLE) {
-  const { isPrimary, isWorker, fork, on } = await import('node:cluster');
-  const numCPUs = os.cpus().length;  // Use top-level os import
-
-  if (isPrimary) {
-	logger.info('Primary process starting cluster', { cpus: numCPUs });
-	for (let i = 0; i < numCPUs; i++) fork();
-	on('exit', (worker) => {
-	  logger.warn('Worker died, restarting', { pid: worker.process.pid });
-	  fork();
-	});
-  } else if (isWorker) {
-	logger.info('Worker started', { pid: process.pid });
-  }
-}
-
 // Render sends SIGTERM 30s before kill
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received from Render');
@@ -95,6 +79,22 @@ function getDiskUsage() {
 	const stat = fs.statSync(SAFE_UPLOAD_ROOT, { throwIfNoEntry: false });
 	if (!stat) return 100;
 	return 0; // Can't measure accurately, assume safe
+  }
+}
+
+if (process.env.NODE_ENV !== 'development' && !process.env.CLUSTER_DISABLE) {
+  const { isPrimary, isWorker, fork, on } = await import('node:cluster');
+  const numCPUs = os.cpus().length;  // Use top-level os import
+
+  if (isPrimary) {
+	logger.info('Primary process starting cluster', { cpus: numCPUs });
+	for (let i = 0; i < numCPUs; i++) fork();
+	on('exit', (worker) => {
+	  logger.warn('Worker died, restarting', { pid: worker.process.pid });
+	  fork();
+	});
+  } else if (isWorker) {
+	logger.info('Worker started', { pid: process.pid });
   }
 }
 
