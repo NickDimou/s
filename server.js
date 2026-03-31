@@ -1,6 +1,5 @@
 /**
- * Stelno Server v3.1 - PRODUCTION READY
- * All critical bugs fixed, production hardening complete
+ * Stelno Server v3.2 - PRODUCTION READY (ESM CLUSTER FIXED)
  */
 
 import { WebSocketServer } from 'ws';
@@ -12,17 +11,15 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
-// Production deps (npm i diskusage helmet @prometheus/client)
 import diskusage from 'diskusage';
 import helmet from 'helmet';
 
-// ESM __dirname polyfill
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Render sends SIGTERM 30s before kill
 process.on('SIGTERM', () => {
-  logger.info('SIGTERM received from Render');
+  logger?.info('SIGTERM received from Render');
   shutdown('SIGTERM');
 });
 
@@ -53,7 +50,7 @@ const CFG = Object.freeze({
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   §2  WORKER-SAFE LOGGER + DISK STATS (FIXED)
+   §2  LOGGER (MOVED AFTER CFG)
 ═══════════════════════════════════════════════════════════════ */
 const LOG_LABELS = ['ERROR', 'WARN', 'INFO', 'DEBUG'];
 function log(level, msg, meta = {}) {
@@ -75,40 +72,39 @@ const logger = {
   debug: (msg, meta) => log(3, msg, meta),
 };
 
-// FIXED: Cross-platform disk usage
-async function getDiskUsage() {
-  try {
-	const { free, size } = await diskusage.check(SAFE_UPLOAD_ROOT);
-	return Math.round((1 - free / size) * 100);
-  } catch {
-	return 100; // Assume full if unmeasurable
-  }
-}
-
 /* ═══════════════════════════════════════════════════════════════
-   §3  CLUSTER BOOT (WORKER-SAFE TMPDIR)
+   §3  CLUSTER BOOT (FIXED - NO TOP-LEVEL RETURN)
 ═══════════════════════════════════════════════════════════════ */
 let SAFE_UPLOAD_ROOT;
-if (!process.env.RENDER && process.env.NODE_ENV !== 'development' && !process.env.CLUSTER_DISABLE) {
-  const { isPrimary, isWorker, fork, on } = await import('node:cluster');
-  const numCPUs = os.cpus().length;
+let isClustered = false;
 
-  if (isPrimary) {
-	logger.info('Primary process starting cluster', { cpus: numCPUs });
-	for (let i = 0; i < numCPUs; i++) fork();
-	on('exit', (worker) => {
-	  logger.warn('Worker died, restarting', { pid: worker.process.pid });
-	  fork();
-	});
-	return; // Primary exits after forking
-  } else if (isWorker) {
+if (!process.env.RENDER && process.env.NODE_ENV !== 'development' && !process.env.CLUSTER_DISABLE) {
+  try {
+	const { isPrimary, fork, on } = await import('node:cluster');
+	const numCPUs = os.cpus().length;
+
+	if (isPrimary) {
+	  logger.info('Primary process starting cluster', { cpus: numCPUs });
+	  for (let i = 0; i < numCPUs; i++) {
+		fork();
+	  }
+	  on('exit', (worker) => {
+		logger.warn('Worker died, restarting', { pid: worker.process.pid });
+		fork();
+	  });
+	  // FIXED: Use process.exit() instead of return
+	  process.exit(0);
+	}
+	isClustered = true;
 	logger.info('Worker started', { pid: process.pid });
+  } catch (err) {
+	logger.warn('Cluster disabled (import error)', { err: err.message });
   }
 }
 
-// FIXED: Per-worker unique tmpdir (no clashes)
-SAFE_UPLOAD_ROOT = await fs.mkdtemp(path.join(os.tmpdir(), `stelno-${process.pid}-`));
-logger.info('Upload root created', { root: SAFE_UPLOAD_ROOT });
+// Per-worker unique tmpdir
+SAFE_UPLOAD_ROOT = await fs.mkdtemp(path.join(os.tmpdir(), `stelno-${process.pid}-${Date.now()}-`));
+logger.info('Upload root created', { root: SAFE_UPLOAD_ROOT, clustered: isClustered });
 
 /* ═══════════════════════════════════════════════════════════════
    §4  VALIDATION HELPERS (MOVED files.has AFTER JOIN)
