@@ -81,12 +81,11 @@ const logger = {
   debug: (msg, meta) => log(3, msg, meta),
 };
 
-/* NEW: Get disk usage % */
+/* FIXED: Get disk usage % (was using RAM instead of disk!) */
 function getDiskUsage() {
   try {
-	const stats = fs.statvfsSync(SAFE_UPLOAD_ROOT);
-	const usedPct = ((stats.blocks - stats.bfree) / stats.blocks) * 100;
-	return Math.round(usedPct);
+	const stat = fs.statvfsSync(SAFE_UPLOAD_ROOT);
+	return Math.round(((stat.blocks - stat.bfree) / stat.blocks) * 100);
   } catch {
 	return 0;
   }
@@ -585,18 +584,18 @@ const server = http.createServer(async (req, res) => {
 	return;
   }
 
-	/* ── §12j  DISK STATUS ── NEW #16 */
-	if (req.method === 'GET' && req.url === '/disk') {
-	  const diskPct = getDiskUsage();
-	  const stat = fs.statvfsSync(SAFE_UPLOAD_ROOT);
-	  res.writeHead(200, { 'Content-Type': 'application/json' });
-	  res.end(JSON.stringify({
-		diskPct,
-		usedMb: Math.round((stat.blocks - stat.bfree) * stat.bsize / 1024 / 1024),
-		freeMb: Math.round(stat.bfree * stat.bsize / 1024 / 1024)
-	  }));
-	  return;
-	}
+  /* ── §12j  DISK STATUS ── NEW #16 */
+  if (req.method === 'GET' && req.url === '/disk') {
+	const diskPct = getDiskUsage();
+	const stat = fs.statvfsSync(SAFE_UPLOAD_ROOT);
+	res.writeHead(200, { 'Content-Type': 'application/json' });
+	res.end(JSON.stringify({
+	  diskPct,
+	  usedMb: Math.round((stat.blocks - stat.bfree) * stat.bsize / 1024 / 1024),
+	  freeMb: Math.round(stat.bfree * stat.bsize / 1024 / 1024)
+	}));
+	return;
+  }
 
   /* ── §12d  RESUMABLE UPLOAD  (POST with optional Content-Range) ── */
   if (req.method === 'POST' && !req.url.startsWith('/cancel')) {
@@ -675,7 +674,6 @@ const server = http.createServer(async (req, res) => {
 		id:        newId,
 		path:      fpath,
 		dir,
-		stream:    fs.createWriteStream(fpath, { flags: 'w' }),
 		hash:      crypto.createHash('sha256'),
 		offset:    0,
 		totalSize: expSize,
@@ -684,10 +682,8 @@ const server = http.createServer(async (req, res) => {
 		timer:     null,
 	  };
 	  if (isResumable) pendingUploads.set(uploadId, uploadState);
-	} else {
-	  /* Resuming — reopen stream for appending */
-	  uploadState.stream = fs.createWriteStream(uploadState.path, { flags: 'a' });
 	}
+	/* If we resume, we keep the same `uploadState`; we just reuse the file on disk. */
 
 	const u    = uploadState;
 	let   done = false;
@@ -696,9 +692,10 @@ const server = http.createServer(async (req, res) => {
 	  if (done) return;
 	  done = true;
 	  clearTimeout(u.timer);
-	  try { u.stream?.destroy(); } catch {}
-	  if (isResumable) pendingUploads.delete(uploadId);
-	  else {
+
+	  if (isResumable) {
+		pendingUploads.delete(uploadId);
+	  } else {
 		await safeUnlink(u.path);
 		await safeRm(u.dir);
 	  }
@@ -757,24 +754,47 @@ const server = http.createServer(async (req, res) => {
 
 	req.setTimeout(CFG.UPLOAD_TIMEOUT_MS, () => fail(408, 'Upload timed out'));
 
+	// Collect all chunks and then write once
+	const chunks = [];
+
 	req.on('data', chunk => {
 	  if (done) return;
+	  if (u.offset + chunk.length > CFG.MAX_FILE_SIZE) {
+		fail(413, 'File too large');
+		return;
+	  }
 	  u.offset += chunk.length;
-	  if (u.offset > CFG.MAX_FILE_SIZE) { fail(413, 'File too large'); return; }
 	  u.hash.update(chunk);
-	  if (!u.stream.write(chunk)) req.pause();
+	  chunks.push(chunk);
 	});
 
-	u.stream.on('drain', () => { if (!done) req.resume(); });
-	req.on('end',     () => { if (!done) u.stream.end(() => finishOk()); });
-	req.on('aborted', () => {
-	  /* If resumable keep the partial file */
-	  if (isResumable) { clearTimeout(u.timer); if (!res.headersSent) { res.writeHead(202, { 'X-Upload-Id': uploadId, 'X-Offset': String(u.offset) }); res.end(); } }
-	  else fail(499, 'Client aborted');
+	req.on('end', async () => {
+	  if (done) return;
+	  try {
+		await fs.promises.writeFile(u.path, Buffer.concat(chunks));
+		finishOk();
+	  } catch (err) {
+		logger.warn('Upload write failed', { rid, id: u.id, err: err.message });
+		fail(500, 'Internal upload error');
+	  }
 	});
-	req.on('close', () => { if (!done && u.offset === 0) fail(499, 'Connection closed before data'); });
+
+	req.on('aborted', () => {
+	  if (isResumable) {
+		clearTimeout(u.timer);
+		if (!res.headersSent) {
+		  res.writeHead(202, { 'X-Upload-Id': uploadId, 'X-Offset': String(u.offset) });
+		  res.end();
+		}
+	  } else fail(499, 'Client aborted');
+	});
+
+	req.on('close', () => {
+	  if (!done && u.offset === 0) fail(499, 'Connection closed before data');
+	});
+
 	req.on('error', () => fail());
-	u.stream.on('error', () => fail());
+
 	return;
   }
 
