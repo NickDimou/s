@@ -864,6 +864,7 @@ const wss = new WebSocketServer({
 	serverNoContextTakeover: true,
 	serverMaxWindowBits: 10,
 	concurrencyLimit: 10,
+	handleProtocols: true,  // NEW: auto backpressure
 	threshold: 128,             /* only compress messages > 128 bytes */
   },
 });
@@ -902,7 +903,7 @@ wss.on('connection', (ws, req) => {
   ws.on('pong', () => { ws.isAlive = true; });
 
   ws.on('message', data => {
-	if (shuttingDown) return;
+	if (shuttingDown || ws.bufferedAmount > 64 * 1024) return;  // NEW: backpressure check
 	metrics.wsMessages++;
 
 	/* §9: Signaling flood protection */
