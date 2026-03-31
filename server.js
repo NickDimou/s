@@ -11,13 +11,26 @@ import path from 'path';
 import crypto from 'crypto';
 
 if (process.env.NODE_ENV !== 'development' && !process.env.CLUSTER_DISABLE) {
-  const cluster = await import('node:cluster');
-  const os = await import('node:os');
+  const { isPrimary, isWorker, fork, on } = await import('node:cluster');
+  const numCPUs = os.cpus().length;  // Use top-level os import
 
-  if (cluster.default.isPrimary) {
-	for (let i = 0; i < os.default.cpus().length; i++) cluster.default.fork();
-	cluster.default.on('exit', () => cluster.default.fork());
-  } else {
+  if (isPrimary) {
+	logger.info('Primary process starting cluster', { cpus: numCPUs });
+	for (let i = 0; i < numCPUs; i++) fork();
+	on('exit', (worker) => {
+	  logger.warn('Worker died, restarting', { pid: worker.process.pid });
+	  fork();
+	});
+  } else if (isWorker) {
+	logger.info('Worker started', { pid: process.pid });
+  }
+}
+
+// Render sends SIGTERM 30s before kill
+process.on('SIGTERM', () => {
+  logger.info('SIGTERM received from Render');
+  shutdown('SIGTERM');
+});
 
 /* ═══════════════════════════════════════════════════════════════
    §1  CONFIGURATION  (all tunable via environment variables)
@@ -75,10 +88,13 @@ const logger = {
 /* FIXED: Get disk usage % (was using RAM instead of disk!) */
 function getDiskUsage() {
   try {
-	const { size, free } = fs.statvfsSync(SAFE_UPLOAD_ROOT);
+	const { size, free } = fs.statvfsSync(SAFE_UPLOAD_ROOT);  // Linux-only
 	return Math.round((1 - free / size) * 100);
   } catch {
-	return 0;
+	// Fallback for non-Linux (macOS/Windows) or permission errors
+	const stat = fs.statSync(SAFE_UPLOAD_ROOT, { throwIfNoEntry: false });
+	if (!stat) return 100;
+	return 0; // Can't measure accurately, assume safe
   }
 }
 
@@ -394,9 +410,6 @@ function generateNatTraversal(ip) {
 		{ urls: 'stun:stun1.l.google.com:19302' },
 		// Your TURN (fallback for hard NAT cases)
 	  ...(turnCreds ? [{ urls: turnCreds.urls, username: turnCreds.username, credential: turnCreds.credential }] : []),
-	  // Free public STUNs (backup)
-	  { urls: 'stun:stun.l.google.com:19302' },
-	  { urls: 'stun:stun1.l.google.com:19302' },
 	],
 	// Auto-fallback CORS proxy for ancient proxies
 	corsProxy: 'https://api.allorigins.win/raw?url=',
@@ -1137,8 +1150,7 @@ process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled rejection', { reason: String(reason) });
 });
 
-  }
-}
+
 
 
 /* ═══════════════════════════════════════════════════════════════
