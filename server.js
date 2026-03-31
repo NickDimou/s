@@ -165,6 +165,15 @@ function validateMessage(msg) {
   return null;
 }
 
+// NEW: Clean empty rooms on invalid access
+function cleanupEmptyRoom(roomId) {
+  const room = rooms.get(roomId);
+  if (room && room.peers.size === 0) {
+	rooms.delete(roomId);
+	logger.debug('Auto-cleaned empty room', { room: roomId });
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════
    §4  SLIDING-WINDOW RATE LIMITER
 ═══════════════════════════════════════════════════════════════ */
@@ -759,6 +768,9 @@ const server = http.createServer(async (req, res) => {
 	return;
   }
 
+  // ADD THIS LINE (before /f/ download handler)
+  cleanupEmptyRoom(id.split('?')[0].split('#')[0]);
+
   /* ── §12f  DOWNLOAD ── */
   if (req.method === 'GET' && req.url.startsWith('/f/')) {
 	const id = req.url.slice(3).split('?')[0].split('#')[0];
@@ -936,6 +948,7 @@ wss.on('connection', (ws, req) => {
 	  }
 
 	  roomId = msg.join;
+	  cleanupEmptyRoom(roomId);
 
 	  if (!rooms.has(roomId)) {
 		rooms.set(roomId, {
