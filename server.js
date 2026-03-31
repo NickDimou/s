@@ -1,5 +1,5 @@
 /**
- * Stelno Server v2
+ * Stelno Server v2.1 – Render Optimized
  *
  * Enhancements over v1:
  *  1. Structured logging  (log levels, request IDs, JSON-friendly)
@@ -17,6 +17,7 @@
  * 13. Correlation IDs  (every request/socket gets a traceable ID)
  * 14. Room token authentication  (optional shared secret per room)
  * 15. Configurable limits via env  (all knobs in one place)
+ * 16. 🔄 Render disk cleanup     (auto-prunes old files/rooms, prevents deploy fails)
  */
 
 import { WebSocketServer } from 'ws';
@@ -38,6 +39,8 @@ const CFG = Object.freeze({
   MAX_FILE_SIZE:         Number(process.env.MAX_FILE_SIZE)         || 200 * 1024 * 1024, /* 200 MB */
   UPLOAD_TIMEOUT_MS:     Number(process.env.UPLOAD_TIMEOUT_MS)     || 120_000,       /* 2 min */
   SHUTDOWN_TIMEOUT_MS:   Number(process.env.SHUTDOWN_TIMEOUT_MS)   || 8_000,
+  DISK_CLEANUP_INTERVAL: Number(process.env.DISK_CLEANUP_INTERVAL) || 5 * 60_000,    /* 5 min – NEW */
+  DISK_USAGE_MB:         Number(process.env.DISK_USAGE_MB)         || 80,            /* cleanup if >80% used – NEW */
   /* Rate limiting */
   RL_WS_MAX:             Number(process.env.RL_WS_MAX)             || 10,   /* max WS conns per IP */
   RL_HTTP_RPM:           Number(process.env.RL_HTTP_RPM)           || 60,   /* HTTP req/min per IP */
@@ -56,7 +59,7 @@ const CFG = Object.freeze({
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   §2  STRUCTURED LOGGER
+   §2  STRUCTURED LOGGER + DISK STATS  (NEW disk monitoring)
 ═══════════════════════════════════════════════════════════════ */
 const LOG_LABELS = ['ERROR', 'WARN', 'INFO', 'DEBUG'];
 function log(level, msg, meta = {}) {
@@ -76,6 +79,17 @@ const logger = {
   info:  (msg, meta) => log(2, msg, meta),
   debug: (msg, meta) => log(3, msg, meta),
 };
+
+/* NEW: Get disk usage % */
+function getDiskUsage() {
+  try {
+	const stats = fs.statvfsSync(SAFE_UPLOAD_ROOT);
+	const usedPct = ((stats.blocks - stats.bfree) / stats.blocks) * 100;
+	return Math.round(usedPct);
+  } catch {
+	return 0;
+  }
+}
 
 /* ═══════════════════════════════════════════════════════════════
    §3  VALIDATION HELPERS
@@ -509,6 +523,50 @@ const server = http.createServer(async (req, res) => {
 	res.end('Too many requests — please slow down');
 	return;
   }
+
+  /* ── §12i  RENDER DISK CLEANUP ── NEW #16 */
+	if (req.method === 'POST' && req.url === '/cleanup') {
+	  const diskPct = getDiskUsage();
+	  if (diskPct < CFG.DISK_USAGE_MB) {
+		res.writeHead(200, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify({ status: 'clean', diskPct, action: 'noop' }));
+		return;
+	  }
+
+	  const now = Date.now();
+	  let cleaned = 0;
+	  for (const [id, f] of files) {
+		if (now - f.createdAt > CFG.ROOM_TTL_MS) {
+		  await releaseFile(id);
+		  cleaned++;
+		}
+	  }
+	  for (const [id, u] of pendingUploads) {
+		clearTimeout(u.timer);
+		await safeUnlink(u.path);
+		await safeRm(u.dir);
+		pendingUploads.delete(id);
+	  }
+	  rooms.clear();
+
+	  logger.info('Render disk cleanup', { cleaned, diskBefore: diskPct, diskAfter: getDiskUsage() });
+	  res.writeHead(200, { 'Content-Type': 'application/json' });
+	  res.end(JSON.stringify({ status: 'cleaned', filesCleaned: cleaned, diskPct: getDiskUsage() }));
+	  return;
+	}
+
+	/* ── §12j  DISK STATUS ── NEW #16 */
+	if (req.method === 'GET' && req.url === '/disk') {
+	  const diskPct = getDiskUsage();
+	  const stat = fs.statvfsSync(SAFE_UPLOAD_ROOT);
+	  res.writeHead(200, { 'Content-Type': 'application/json' });
+	  res.end(JSON.stringify({
+		diskPct,
+		usedMb: Math.round((stat.blocks - stat.bfree) * stat.bsize / 1024 / 1024),
+		freeMb: Math.round(stat.bfree * stat.bsize / 1024 / 1024)
+	  }));
+	  return;
+	}
 
   /* ── §12d  RESUMABLE UPLOAD  (POST with optional Content-Range) ── */
   if (req.method === 'POST' && !req.url.startsWith('/cancel')) {
@@ -1043,6 +1101,19 @@ process.on('uncaughtException', err => {
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled rejection', { reason: String(reason) });
 });
+
+/* ── RENDER AUTO-CLEANUP ── #16 */
+setInterval(async () => {
+  if (getDiskUsage() > CFG.DISK_USAGE_MB) {
+	logger.warn('Auto-cleanup triggered', { diskPct: getDiskUsage() });
+	const now = Date.now();
+	for (const [id, f] of files) {
+	  if (now - f.createdAt > CFG.ROOM_TTL_MS) await releaseFile(id);
+	}
+  }
+}, CFG.DISK_CLEANUP_INTERVAL).unref();
+
+server.listen(CFG.PORT, () => { ... });
 
 /* ═══════════════════════════════════════════════════════════════
    §15  BOOT
