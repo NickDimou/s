@@ -82,7 +82,7 @@ function getDiskUsage() {
   }
 }
 
-if (process.env.NODE_ENV !== 'development' && !process.env.CLUSTER_DISABLE) {
+if (!process.env.RENDER && process.env.NODE_ENV !== 'development' && !process.env.CLUSTER_DISABLE) {
   const { isPrimary, isWorker, fork, on } = await import('node:cluster');
   const numCPUs = os.cpus().length;  // Use top-level os import
 
