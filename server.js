@@ -642,7 +642,7 @@ const server = http.createServer(async (req, res) => {
 	  if (done) return;
 	  done = true;
 	  clearTimeout(u.timer);
-	  await fd?.close().catch(() => {});
+	  await u.fd?.close().catch(() => {});
 
 	  if (isResumable) {
 		pendingUploads.delete(uploadId);
@@ -662,7 +662,7 @@ const server = http.createServer(async (req, res) => {
 	  if (done) return;
 	  done = true;
 	  clearTimeout(u.timer);
-	  await fd?.close().catch(() => {});
+	  await u.fd?.close().catch(() => {});
 	  if (isResumable) pendingUploads.delete(uploadId);
 
 	  const actualHash = u.hash.digest('hex');
@@ -710,7 +710,7 @@ const server = http.createServer(async (req, res) => {
 		if (rangeStart > 0 && u.offset !== rangeStart) {
 		  throw new Error(`Resume mismatch: server=${u.offset}, client=${rangeStart}`);
 		}
-		const fd = await fs.promises.open(u.path, 'r+');
+		u.fd = await fs.promises.open(u.path, 'r+');  // Store on uploadState
 		const buffer = Buffer.allocUnsafe(64 * 1024); // 64KB buffer
 		let bufferedLen = 0;
 
