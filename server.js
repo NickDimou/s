@@ -798,9 +798,6 @@ const server = http.createServer(async (req, res) => {
 	} catch (err) {
 		await fail(400, err.message);
 		return;
-	} catch (err) {
-	  await fail(400, err.message);
-	  return;
 	}
 
 	req.on('aborted', () => {
