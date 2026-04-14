@@ -1,82 +1,12 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8">
-<meta name="google" content="notranslate">
-<html lang="en" translate="no">
-<meta name="format-detection" content="telephone=no">
-<meta name="author" content="<?php echo $person; ?>">
-<meta name="organization" content="<?php echo $owner; ?>">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title class="noTrans">Stelno</title>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-
-
-<script>
-window.STELNO = window.STELNO || {};
-
-window.STELNO.WS = 'wss://stelno.onrender.com';
-window.STELNO.HTTP = 'https://stelno.onrender.com';
-window.STELNO.MAX_FALLBACK_SIZE = 100 * 1024 * 1024;
-
-window.STELNO.room = location.hash.slice(1) || Math.random().toString(36).slice(2);
-location.hash = window.STELNO.room;
-
-window.STELNO.state = {
-  dc: null,
-  pc: null,
-  connected: false,
-  fallbackMode: false,
-  cancelTransfer: false,
-  currentUpload: null,
-  receivedChunks: [],
-  expectedChunks: 0,
-  fileMeta: null,
-  rcvStartTime: 0,
-  fileQueue: [],
-  sendingFile: false,
-  makingOffer: false,
-  polite: Math.random() > 0.5,
-  transferId: null, /* new unique transfer ID for integrity/resume */
-  lastChunkAck: 0, /* last acknowledged chunk */
-  timeoutTimer: null, /* transfer stall timeout */
-  localStream: null,   /* ← NEW */
-  remoteStream: null   /* ← NEW */
-};
-
-window.STELNO.pendingSignals = [];
-
-window.STELNO.vibrateMobile = (ms = 20) => {
-  if (navigator.vibrate && /Mobi|Android/i.test(navigator.userAgent)) navigator.vibrate(ms);
-};
-
-window.STELNO.fmtSpeed = bps => (
-  bps >= 1048576 ? `${(bps / 1048576).toFixed(1)} MB/s` : `${(bps / 1024).toFixed(0)} KB/s`
-);
-
-window.STELNO.fmtETA = sec => {
-  if (!isFinite(sec) || sec < 0) return '—';
-  return sec >= 60 ? `${Math.ceil(sec / 60)}m left` : `${Math.ceil(sec)}s left`;
-};
-
-window.STELNO.shortName = (name, max = 20) => {
-  if (name.length <= max) return name;
-  const ext = name.includes('.') ? '.' + name.split('.').pop() : '';
-  return name.slice(0, max - ext.length - 3) + '...' + ext;
-};
-
-window.STELNO.setPeer = state => {
-  if (window.STELNO.UI?.peerDot) window.STELNO.UI.peerDot.dataset.state = state;
-};
-</script>
 
 
 
 
 
-
-<!-- 2 -->
+<!-- 6 -->
 <script>
 window.STELNO.UI = {
   s: document.getElementById('status'),
