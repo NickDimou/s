@@ -1,6 +1,6 @@
 {
   "name": "stelno",
-  "version": "1.0.0",
+  "version": "26.0.0",
   "type": "module",
   "dependencies": {
     "ws": "^8.16.0"
