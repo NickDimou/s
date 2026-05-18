@@ -1,7 +1,4 @@
-/**
- * Stelno Server v3.0 – Production Ready (Pino + Redis + S3 + Cluster + Brotli)
- * All 8 suggested improvements added with zero bugs. Zero deps added except pino/ioredis/aws-sdk.
- */
+/* Stelno Server v3.0 – Production Read */
 
 import { WebSocketServer } from 'ws';
 import http from 'http';
@@ -63,14 +60,12 @@ const logger = {
   debug: (msg, meta) => log(3, msg, meta),
 };
 
-/* FIXED: Get disk usage % (was using RAM instead of disk!) */
 function getDiskUsage() {
   try {
-	const { size, free } = fs.statvfsSync(SAFE_UPLOAD_ROOT);
-	return Math.round((1 - free / size) * 100);
-  } catch {
-	return 0;
-  }
+	const st = fs.statfsSync ? fs.statfsSync(SAFE_UPLOAD_ROOT) : null;
+	if (!st) return 0;
+	return Math.round((1 - st.bfree / st.blocks) * 100);
+  } catch { return 0; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -533,16 +528,10 @@ const server = http.createServer(async (req, res) => {
 
 
 
-  /* ── §12j  DISK STATUS ── NEW #16 */
+  /* ── §12j  DISK STATUS ── */
   if (req.method === 'GET' && req.url === '/disk') {
-	const diskPct = getDiskUsage();
-	const stat = fs.statvfsSync(SAFE_UPLOAD_ROOT);
 	res.writeHead(200, { 'Content-Type': 'application/json' });
-	res.end(JSON.stringify({
-	  diskPct,
-	  usedMb: Math.round((stat.blocks - stat.bfree) * stat.bsize / 1024 / 1024),
-	  freeMb: Math.round(stat.bfree * stat.bsize / 1024 / 1024)
-	}));
+	res.end(JSON.stringify({ diskPct: getDiskUsage() }));
 	return;
   }
 
@@ -636,13 +625,12 @@ const server = http.createServer(async (req, res) => {
 
 	const u    = uploadState;
 	let   done = false;
-	let   fd;
 
 	const fail = async (code = 500, msg = 'Upload failed') => {
 	  if (done) return;
 	  done = true;
 	  clearTimeout(u.timer);
-	  await u.fd?.close().catch(() => {});
+	  try { u.stream?.destroy(); } catch {}
 
 	  if (isResumable) {
 		pendingUploads.delete(uploadId);
@@ -662,7 +650,6 @@ const server = http.createServer(async (req, res) => {
 	  if (done) return;
 	  done = true;
 	  clearTimeout(u.timer);
-	  await u.fd?.close().catch(() => {});
 	  if (isResumable) pendingUploads.delete(uploadId);
 
 	  const actualHash = u.hash.digest('hex');
@@ -706,51 +693,44 @@ const server = http.createServer(async (req, res) => {
 
 	req.setTimeout(CFG.UPLOAD_TIMEOUT_MS, () => fail(408, 'Upload timed out'));
 
-		// 🔥 ULTRA-FAST: Direct buffered write (2x faster than streams)
-		if (rangeStart > 0 && u.offset !== rangeStart) {
-		  throw new Error(`Resume mismatch: server=${u.offset}, client=${rangeStart}`);
-		}
-		u.fd = await fs.promises.open(u.path, 'r+');  // Store on uploadState
-		const buffer = Buffer.allocUnsafe(64 * 1024); // 64KB buffer
-		let bufferedLen = 0;
+	if (rangeStart > 0 && u.offset !== rangeStart) {
+	  await fail(409, `Resume mismatch: server=${u.offset}, client=${rangeStart}`);
+	  return;
+	}
 
-		req.on('data', (chunk) => {
-		  if (done || u.offset + chunk.length > CFG.MAX_FILE_SIZE) return req.destroy();
-		  buffer.set(chunk, bufferedLen);
-		  bufferedLen += chunk.length;
-		  if (bufferedLen >= 32 * 1024) {  // flush every 32KB
-			fd.write(buffer, 0, bufferedLen, u.offset).then(({bytesWritten}) => {
-			  if (bytesWritten !== bufferedLen) throw new Error('Partial write');
-			  u.offset += bytesWritten;
-			  u.hash.update(buffer.subarray(0, bytesWritten));
-			});
-			bufferedLen = 0;
-		  }
-		});
+	/* Stream-based write with proper backpressure and hash */
+	const writeStream = fs.createWriteStream(u.path,
+	  u.offset > 0 ? { flags: 'r+', start: u.offset } : {}
+	);
+	u.stream = writeStream;
 
-		req.on('end', async () => {
-		  if (done || bufferedLen > 0) {
-			await fd.write(buffer, 0, bufferedLen, u.offset);
-			u.offset += bufferedLen;
-			u.hash.update(buffer.subarray(0, bufferedLen));
-		  }
-		  await finishOk();
-		});
-
-	req.on('aborted', () => {
-	  if (isResumable && !done) {
-		clearTimeout(u.timer);
-		if (!res.headersSent) {
-		  res.writeHead(202, { 'X-Upload-Id': uploadId, 'X-Offset': String(u.offset) });
-		  res.end();
-		}
-	  } else {
-		fail(499, 'Client aborted');
-	  }
+	req.on('data', chunk => {
+	  if (done) return;
+	  if (u.offset + chunk.length > CFG.MAX_FILE_SIZE) { req.destroy(); return; }
+	  u.offset += chunk.length;
+	  u.hash.update(chunk);
+	  metrics.bytesUploaded += chunk.length;
+	  if (!writeStream.write(chunk)) req.pause();
 	});
 
+	writeStream.on('drain', () => { if (!done) req.resume(); });
+	req.on('end', () => { if (!done) writeStream.end(); });
+	writeStream.on('finish', finishOk);
+	writeStream.on('error', () => fail(500, 'Write error'));
+
 	req.on('close', () => {
-	  if (!done && u.offset === 0) fail(499, 'Connection closed before data');
+	  if (!done) {
+		if (isResumable) {
+		  clearTimeout(u.timer);
+		  if (!res.headersSent) {
+			res.writeHead(202, { 'X-Upload-Id': uploadId, 'X-Offset': String(u.offset) });
+			res.end();
+		  }
+		  done = true;
+		} else {
+		  fail(499, 'Client disconnected');
+		}
+	  }
 	});
 
 	req.on('error', () => fail());
@@ -864,7 +844,6 @@ const wss = new WebSocketServer({
 	serverNoContextTakeover: true,
 	serverMaxWindowBits: 10,
 	concurrencyLimit: 10,
-	handleProtocols: true,  // NEW: auto backpressure
 	threshold: 128,             /* only compress messages > 128 bytes */
   },
 });
@@ -903,7 +882,7 @@ wss.on('connection', (ws, req) => {
   ws.on('pong', () => { ws.isAlive = true; });
 
   ws.on('message', data => {
-	if (shuttingDown || ws.bufferedAmount > 64 * 1024) return;  // NEW: backpressure check
+	if (shuttingDown) return;
 	metrics.wsMessages++;
 
 	/* §9: Signaling flood protection */
