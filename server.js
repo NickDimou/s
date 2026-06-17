@@ -14,7 +14,7 @@ const CFG = Object.freeze({
   PORT:                  Number(process.env.PORT)                  || 3000,
   ROOM_TTL_MS:           Number(process.env.ROOM_TTL_MS)           || 10 * 60_000,   /* 10 min */
   ROOM_TTL_ACTIVE_MS:    Number(process.env.ROOM_TTL_ACTIVE_MS)    || 30 * 60_000,   /* 30 min – while peers present */
-  MAX_PEERS_PER_ROOM:    Number(process.env.MAX_PEERS_PER_ROOM)    || 3,
+  MAX_PEERS_PER_ROOM:    Number(process.env.MAX_PEERS_PER_ROOM)    || 2,
   HEARTBEAT_INTERVAL_MS: Number(process.env.HEARTBEAT_INTERVAL_MS) || 20_000,        /* 20 s */
   MAX_FILE_SIZE:         Number(process.env.MAX_FILE_SIZE)         || 200 * 1024 * 1024, /* 200 MB */
   UPLOAD_TIMEOUT_MS:     Number(process.env.UPLOAD_TIMEOUT_MS)     || 120_000,       /* 2 min */
@@ -296,21 +296,30 @@ async function releaseFile(id) {
 async function pruneRooms() {
   const now = Date.now();
   for (const [id, room] of rooms) {
-	/* Check heartbeat status for each peer */
+	/* Empty rooms get a 30-second grace period before deletion */
+	if (room.peers.size === 0) {
+	  if (now - (room._emptyAt ?? room.lastActive) > 30_000) {
+		logger.info('Pruning empty room', { room: id });
+		rooms.delete(id);
+	  }
+	  continue;
+	}
+	/* Check heartbeat status — require 2 consecutive missed pongs before eviction */
 	for (const [ws, meta] of room.peers) {
-	  if (!ws.isAlive) {
+	  if (meta.missedPings >= 2) {
 		logger.debug('Removing zombie peer', { room: id, peer: meta.id });
 		try { ws.terminate(); } catch {}
 		room.peers.delete(ws);
 		/* Notify remaining peers */
 		broadcast(room, null, { peerLeft: meta.id, peerCount: room.peers.size });
 	  } else {
+		if (!ws.isAlive) meta.missedPings = (meta.missedPings || 0) + 1;
+		else meta.missedPings = 0;
 		ws.isAlive = false;
 		try { ws.ping(); } catch {}
 	  }
 	}
-	const ttl = room.peers.size > 0 ? CFG.ROOM_TTL_ACTIVE_MS : CFG.ROOM_TTL_MS;
-	if (now - room.lastActive > ttl || room.peers.size === 0) {
+	if (now - room.lastActive > CFG.ROOM_TTL_ACTIVE_MS) {
 	  logger.info('Pruning stale room', { room: id, peers: room.peers.size });
 	  rooms.delete(id);
 	}
@@ -919,6 +928,7 @@ wss.on('connection', (ws, req) => {
 		  createdAt: Date.now(),
 		  lastActive: Date.now(),
 		  token:     null,
+		  signalBuf: [], /* buffered signals for late joiners */
 		});
 		logger.info('Room created', { room: roomId, peerId });
 	  }
@@ -932,7 +942,7 @@ wss.on('connection', (ws, req) => {
 		return;
 	  }
 
-	  joinedRoom.peers.set(ws, { id: peerId, joinedAt: Date.now(), msgCount: 0, ip });
+	  joinedRoom.peers.set(ws, { id: peerId, joinedAt: Date.now(), msgCount: 0, ip, missedPings: 0 });
 	  joinedRoom.lastActive = Date.now();
 
 	  /* Tell the new peer how many others are present */
@@ -948,6 +958,15 @@ wss.on('connection', (ws, req) => {
 	  /* Notify existing peers */
 	  broadcast(joinedRoom, ws, { peerJoined: true, peerCount: joinedRoom.peers.size });
 
+	  /* Replay buffered signals (offer + ICE) from existing peers to the new joiner */
+	  if (joinedRoom.signalBuf?.length) {
+		const cutoff = Date.now() - 60_000;
+		for (const { signal, from, ts } of joinedRoom.signalBuf) {
+		  if (from === peerId || ts < cutoff) continue;
+		  try { ws.send(JSON.stringify({ signal })); } catch {}
+		}
+	  }
+
 	  logger.info('Peer joined room', { room: roomId, peerId, peerCount: joinedRoom.peers.size });
 	  return;
 	}
@@ -961,7 +980,20 @@ wss.on('connection', (ws, req) => {
 
 	/* ── SIGNAL ── */
 	if (kind === 'signal') {
-	  const payload = JSON.stringify({ signal: normalizeSignal(msg.signal) });
+	  const sig = normalizeSignal(msg.signal);
+	  /* Buffer for late joiners: keep latest offer + up to 30 fresh candidates */
+	  if (!joinedRoom.signalBuf) joinedRoom.signalBuf = [];
+	  const now2 = Date.now();
+	  if (sig.type === 'offer') {
+		joinedRoom.signalBuf = joinedRoom.signalBuf.filter(s => s.signal.type !== 'offer');
+		joinedRoom.signalBuf.push({ signal: sig, from: peerId, ts: now2 });
+	  } else if (sig.type === 'candidate') {
+		joinedRoom.signalBuf = joinedRoom.signalBuf.filter(s => now2 - s.ts < 60_000);
+		if (joinedRoom.signalBuf.filter(s => s.signal.type === 'candidate').length < 30) {
+		  joinedRoom.signalBuf.push({ signal: sig, from: peerId, ts: now2 });
+		}
+	  }
+	  const payload = JSON.stringify({ signal: sig });
 	  for (const [peer] of joinedRoom.peers) {
 		if (peer !== ws && peer.readyState === 1) {
 		  try { peer.send(payload); } catch {}
@@ -1017,8 +1049,9 @@ wss.on('connection', (ws, req) => {
 	});
 
 	if (joinedRoom.peers.size === 0) {
-	  rooms.delete(roomId);
-	  logger.info('Room closed (empty)', { room: roomId });
+	  joinedRoom._emptyAt = Date.now();
+	  joinedRoom.signalBuf = []; /* stale signals no longer useful */
+	  logger.info('Room empty, 30s grace before cleanup', { room: roomId });
 	}
   });
 
