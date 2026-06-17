@@ -1,4 +1,4 @@
-/* Stelno Server v3.0 – Production Read */
+/* Stelno Server v4.0 – Production Read */
 
 import { WebSocketServer } from 'ws';
 import http from 'http';
@@ -257,7 +257,33 @@ const metrics = {
   uploadsOk:      0,
   uploadsFailed:  0,
   startedAt:      Date.now(),
+  eventLoopLagMs: 0,
 };
+
+/* ═══════════════════════════════════════════════════════════════
+   EVENT-LOOP LAG MONITOR
+   Measures setImmediate drift every 500ms.
+   If lag > 500ms the server is overloaded — new connections are
+   rejected with 503 until it recovers.
+═══════════════════════════════════════════════════════════════ */
+let _lagOverloaded = false;
+(function _monitorLag() {
+  const INTERVAL = 500;
+  const THRESHOLD = 500; /* ms of lag before we cry overload */
+  let last = Date.now();
+  setInterval(() => {
+    const now  = Date.now();
+    const lag  = now - last - INTERVAL;
+    last       = now;
+    metrics.eventLoopLagMs = Math.max(0, lag);
+    const wasOverloaded = _lagOverloaded;
+    _lagOverloaded = lag > THRESHOLD;
+    if (_lagOverloaded && !wasOverloaded)
+      logger.warn('Event loop overloaded', { lagMs: lag });
+    if (!_lagOverloaded && wasOverloaded)
+      logger.info('Event loop recovered', { lagMs: lag });
+  }, INTERVAL).unref();
+})();
 
 /* ═══════════════════════════════════════════════════════════════
    §6  FILESYSTEM HELPERS
@@ -456,7 +482,15 @@ const server = http.createServer(async (req, res) => {
   );
   res.setHeader('X-Content-Type-Options', 'nosniff');
 
-  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Max-Age', '86400'); // cache preflight 24 h
+    res.writeHead(204); res.end(); return;
+  }
+
+  if (_lagOverloaded) {
+    res.writeHead(503, { 'Retry-After': '5', 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Server busy'); return;
+  }
 
   logger.debug('HTTP request', { rid, method: req.method, url: req.url, ip });
 
@@ -692,9 +726,11 @@ const server = http.createServer(async (req, res) => {
 	}
 
 	/* Stream-based write with proper backpressure and hash */
-	const writeStream = fs.createWriteStream(u.path,
-	  u.offset > 0 ? { flags: 'r+', start: u.offset } : {}
-	);
+	/* highWaterMark 512KB (4× default) → better large-file throughput */
+	const writeStream = fs.createWriteStream(u.path, {
+	  ...(u.offset > 0 ? { flags: 'r+', start: u.offset } : {}),
+	  highWaterMark: 512 * 1024,
+	});
 	u.stream = writeStream;
 
 	req.on('data', chunk => {
@@ -782,7 +818,8 @@ const server = http.createServer(async (req, res) => {
 	  res.writeHead(200, headers);
 	}
 
-	const s = fs.createReadStream(f.path, { start, end });
+	/* highWaterMark 256KB → fewer round-trips for large downloads */
+	const s = fs.createReadStream(f.path, { start, end, highWaterMark: 256 * 1024 });
 	s.on('error', () => { try { res.destroy(); } catch {} });
 	s.on('data',  chunk => { metrics.bytesServed += chunk.length; });
 	s.pipe(res);
@@ -814,7 +851,18 @@ const server = http.createServer(async (req, res) => {
   res.end('stelno alive');
 });
 
+/* ── §1 KEEP-ALIVE TUNING ──────────────────────────────────────
+   Render/Heroku/AWS load balancers close idle connections at ~60s.
+   Node's default keepAliveTimeout is 5s → silent ECONNRESET.
+   Set ours above the LB timeout so Node always closes first.
+──────────────────────────────────────────────────────────────── */
+server.keepAliveTimeout = 65_000;   /* must be > LB idle timeout (60s) */
+server.headersTimeout   = 66_000;   /* must be > keepAliveTimeout      */
+server.requestTimeout   = 30_000;   /* kills slow-read / Slowloris GETs */
+server.maxHeadersCount  = 100;      /* default 2000 is an attack surface */
+
 server.on('connection', socket => {
+  socket.setNoDelay(true);          /* disable Nagle — not needed for HTTP */
   sockets.add(socket);
   socket.on('close', () => sockets.delete(socket));
 });
@@ -858,6 +906,9 @@ wss.on('connection', (ws, req) => {
 	try { ws.close(1008, 'Too many connections from your IP'); } catch {}
 	return;
   }
+
+  /* Disable Nagle on the underlying TCP socket — cuts signaling RTT */
+  try { ws._socket?.setNoDelay(true); } catch {}
 
   const peerId = crypto.randomBytes(8).toString('hex');
   ws.isAlive   = true;
@@ -955,7 +1006,7 @@ wss.on('connection', (ws, req) => {
 		}));
 	  } catch {}
 
-	  /* Notify existing peers */
+	  /* Notify existing peers — pre-serialize once, reuse for all recipients */
 	  broadcast(joinedRoom, ws, { peerJoined: true, peerCount: joinedRoom.peers.size });
 
 	  /* Replay buffered signals (offer + ICE) from existing peers to the new joiner */
@@ -981,16 +1032,24 @@ wss.on('connection', (ws, req) => {
 	/* ── SIGNAL ── */
 	if (kind === 'signal') {
 	  const sig = normalizeSignal(msg.signal);
-	  /* Buffer for late joiners: keep latest offer + up to 30 fresh candidates */
-	  if (!joinedRoom.signalBuf) joinedRoom.signalBuf = [];
+	  /* Buffer for late joiners: keep latest offer + up to 30 fresh candidates.
+	     Use an O(1) candidateCount rather than scanning the array each message. */
+	  if (!joinedRoom.signalBuf)      joinedRoom.signalBuf      = [];
+	  if (!joinedRoom.candidateCount) joinedRoom.candidateCount = 0;
 	  const now2 = Date.now();
 	  if (sig.type === 'offer') {
-		joinedRoom.signalBuf = joinedRoom.signalBuf.filter(s => s.signal.type !== 'offer');
+		/* Replace any prior offer; reset candidate count */
+		joinedRoom.signalBuf     = joinedRoom.signalBuf.filter(s => s.signal.type !== 'offer');
+		joinedRoom.candidateCount = joinedRoom.signalBuf.filter(s => s.signal.type === 'candidate').length;
 		joinedRoom.signalBuf.push({ signal: sig, from: peerId, ts: now2 });
 	  } else if (sig.type === 'candidate') {
+		/* Evict stale candidates first */
+		const before = joinedRoom.signalBuf.length;
 		joinedRoom.signalBuf = joinedRoom.signalBuf.filter(s => now2 - s.ts < 60_000);
-		if (joinedRoom.signalBuf.filter(s => s.signal.type === 'candidate').length < 30) {
+		joinedRoom.candidateCount -= (before - joinedRoom.signalBuf.length);
+		if (joinedRoom.candidateCount < 30) {
 		  joinedRoom.signalBuf.push({ signal: sig, from: peerId, ts: now2 });
+		  joinedRoom.candidateCount++;
 		}
 	  }
 	  const payload = JSON.stringify({ signal: sig });
@@ -1057,6 +1116,8 @@ wss.on('connection', (ws, req) => {
 
   ws.on('error', err => {
 	logger.debug('WS error', { peerId, ip, err: err?.message });
+	/* Terminate immediately — avoids zombie connections */
+	try { ws.terminate(); } catch {}
   });
 });
 
@@ -1103,12 +1164,19 @@ async function shutdown(signal) {
 
 process.on('SIGINT',  () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGQUIT', () => shutdown('SIGQUIT')); /* Docker graceful stop */
 
 process.on('uncaughtException', err => {
-  logger.error('Uncaught exception', { err: err?.message, stack: err?.stack });
+  /* Log then EXIT — a corrupted process is worse than a restart.
+     PM2 / Docker / systemd will bring it back up automatically.  */
+  logger.error('Uncaught exception — exiting', { err: err?.message, stack: err?.stack });
+  process.exitCode = 1;
+  shutdown('uncaughtException').finally(() => process.exit(1));
 });
 process.on('unhandledRejection', (reason) => {
-  logger.error('Unhandled rejection', { reason: String(reason) });
+  logger.error('Unhandled rejection — exiting', { reason: String(reason) });
+  process.exitCode = 1;
+  shutdown('unhandledRejection').finally(() => process.exit(1));
 });
 
 
