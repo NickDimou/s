@@ -348,6 +348,7 @@ async function prunePendingUploads() {
 }
 
 setInterval(async () => {
+  if (shuttingDown) return;
   await pruneRooms();
   await pruneFiles();
   await prunePendingUploads();
@@ -375,17 +376,11 @@ function generateNatTraversal(ip) {
 
   return {
 	iceServers: [
-	  // Reliable public STUNs (99% uptime)
-		{ urls: 'stun:stun.l.google.com:19302' },
-		{ urls: 'stun:stun1.l.google.com:19302' },
-		// Your TURN (fallback for hard NAT cases)
-	  ...(turnCreds ? [{ urls: turnCreds.urls, username: turnCreds.username, credential: turnCreds.credential }] : []),
-	  // Free public STUNs (backup)
 	  { urls: 'stun:stun.l.google.com:19302' },
 	  { urls: 'stun:stun1.l.google.com:19302' },
+	  { urls: 'stun:stun2.l.google.com:19302' },
+	  ...(turnCreds ? [{ urls: turnCreds.urls, username: turnCreds.username, credential: turnCreds.credential }] : []),
 	],
-	// Auto-fallback CORS proxy for ancient proxies
-	corsProxy: 'https://api.allorigins.win/raw?url=',
   };
 }
 
@@ -406,17 +401,6 @@ function generateTurnCredentials(username) {
 /* ═══════════════════════════════════════════════════════════════
    §10  ROOM TOKEN VERIFICATION  (optional HMAC-SHA256 room password)
 ═══════════════════════════════════════════════════════════════ */
-function verifyRoomToken(roomId, token) {
-  if (!CFG.REQUIRE_ROOM_TOKEN) return true;
-  if (!CFG.ROOM_TOKEN_SECRET || !token) return false;
-  /* Expected token = HMAC-SHA256(roomId, ROOM_TOKEN_SECRET) hex */
-  const expected = crypto
-	.createHmac('sha256', CFG.ROOM_TOKEN_SECRET)
-	.update(roomId)
-	.digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(token, 'hex').slice(0, expected.length / 2 < 1 ? 1 : expected.length / 2));
-}
-
 /* Safe comparison that won't throw on length mismatch */
 function safeCompare(a, b) {
   try {
@@ -709,7 +693,6 @@ const server = http.createServer(async (req, res) => {
 	  if (u.offset + chunk.length > CFG.MAX_FILE_SIZE) { req.destroy(); return; }
 	  u.offset += chunk.length;
 	  u.hash.update(chunk);
-	  metrics.bytesUploaded += chunk.length;
 	  if (!writeStream.write(chunk)) req.pause();
 	});
 
